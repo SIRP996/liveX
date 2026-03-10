@@ -1,0 +1,5 @@
+{
+  "name": "TikTok Live Monitor",
+  "description": "Tự động theo dõi các kênh TikTok và gửi thông báo qua Telegram khi có kênh đang live.",
+  "requestFramePermissions": []
+}
