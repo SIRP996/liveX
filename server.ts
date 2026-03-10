@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -18,7 +17,9 @@ const PORT = 3000;
 
 app.use(express.json());
 
-const USERS_FILE = path.join(process.cwd(), 'users.json');
+const USERS_FILE = process.env.VERCEL 
+  ? path.join('/tmp', 'users.json') 
+  : path.join(process.cwd(), 'users.json');
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-12345';
 
 interface UserConfig {
@@ -196,6 +197,7 @@ async function checkTikTokLive(username: string) {
     const $ = cheerio.load(response.data);
     const sigiStateStr = $('#SIGI_STATE').html();
     
+    let viewerCount = 0;
     if (sigiStateStr) {
       const sigiState = JSON.parse(sigiStateStr);
       const userInfo = sigiState?.LiveRoom?.liveRoomUserInfo;
@@ -203,18 +205,35 @@ async function checkTikTokLive(username: string) {
       const isLive = userInfo?.user?.status === 2 || userInfo?.liveRoom?.status === 2;
       
       if (isLive) {
+        if (userInfo?.liveRoom?.userCount) viewerCount = userInfo.liveRoom.userCount;
+        else if (userInfo?.liveRoom?.liveRoomStats?.userCount) viewerCount = userInfo.liveRoom.liveRoomStats.userCount;
+        else if (userInfo?.stats?.userCount) viewerCount = userInfo.stats.userCount;
+        else if (sigiState?.LiveRoom?.liveRoomStats?.userCount) viewerCount = sigiState.LiveRoom.liveRoomStats.userCount;
+
+        if (viewerCount === 0) {
+           const match = response.data.match(/"userCount":(\d+)/) || response.data.match(/"totalUser":(\d+)/) || response.data.match(/"user_count":(\d+)/) || response.data.match(/"viewer_count":(\d+)/);
+           if (match && match[1]) {
+             viewerCount = parseInt(match[1], 10);
+           }
+        }
+
         return { 
           isLive: true, 
           coverUrl: userInfo?.liveRoom?.coverUrl || userInfo?.user?.avatarLarger || null,
           title: userInfo?.liveRoom?.title || '',
-          viewerCount: userInfo?.liveRoom?.userCount || 0
+          viewerCount: viewerCount
         };
       }
     }
     
     const html = response.data;
     if (html.includes('room_id') && html.includes('live_room')) {
-       return { isLive: true, coverUrl: null, title: '', viewerCount: 0 };
+       // Try to extract viewer count from HTML if SIGI_STATE fails
+       const match = html.match(/"userCount":(\d+)/) || html.match(/"totalUser":(\d+)/) || html.match(/"user_count":(\d+)/) || html.match(/"viewer_count":(\d+)/);
+       if (match && match[1]) {
+         viewerCount = parseInt(match[1], 10);
+       }
+       return { isLive: true, coverUrl: null, title: '', viewerCount: viewerCount };
     }
 
     if (html.includes('verify-page') || html.includes('captcha') || html.includes('Access Denied')) {
@@ -511,6 +530,7 @@ app.delete('/api/channels/:docId', authenticate, async (req: any, res: any) => {
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -525,4 +545,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
