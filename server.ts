@@ -217,10 +217,14 @@ async function checkTikTokLive(username: string) {
        return { isLive: true, coverUrl: null, title: '', viewerCount: 0 };
     }
 
+    if (html.includes('verify-page') || html.includes('captcha') || html.includes('Access Denied')) {
+       return { isLive: false, viewerCount: 0, error: true };
+    }
+
     return { isLive: false, viewerCount: 0 };
   } catch (error: any) {
     console.error(`Error checking TikTok for ${username}:`, error.message);
-    return { isLive: false, viewerCount: 0 };
+    return { isLive: false, viewerCount: 0, error: true };
   }
 }
 
@@ -241,11 +245,17 @@ async function checkAllChannels() {
       for (const channel of channels) {
         const status = await checkTikTokLive(channel.id);
         
+        if (status.error) {
+          console.log(`Skipping update for ${channel.id} due to fetch error.`);
+          continue;
+        }
+
         if (status.isLive && !channel.isLive) {
           console.log(`${channel.id} is now LIVE for ${username}!`);
           
           await updateDoc(doc(service.db, 'channels', channel.docId), {
             isLive: true,
+            offlineStrikes: 0,
             lastLiveAt: new Date().toISOString(),
             coverUrl: status.coverUrl || null,
             title: status.title || '',
@@ -262,15 +272,24 @@ async function checkAllChannels() {
         } 
         else if (status.isLive && channel.isLive) {
           await updateDoc(doc(service.db, 'channels', channel.docId), {
-            viewerCount: status.viewerCount || 0
+            viewerCount: status.viewerCount || 0,
+            offlineStrikes: 0
           });
         }
         else if (!status.isLive && channel.isLive) {
-          console.log(`${channel.id} is now OFFLINE for ${username}.`);
-          await updateDoc(doc(service.db, 'channels', channel.docId), {
-            isLive: false,
-            viewerCount: 0
-          });
+          const strikes = (channel.offlineStrikes || 0) + 1;
+          if (strikes >= 3) {
+            console.log(`${channel.id} is now OFFLINE for ${username}.`);
+            await updateDoc(doc(service.db, 'channels', channel.docId), {
+              isLive: false,
+              offlineStrikes: 0,
+              viewerCount: 0
+            });
+          } else {
+            await updateDoc(doc(service.db, 'channels', channel.docId), {
+              offlineStrikes: strikes
+            });
+          }
         }
         
         await new Promise(resolve => setTimeout(resolve, 2000));
