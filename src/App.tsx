@@ -167,8 +167,8 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
   const fetchChannels = async () => {
     try {
       const res = await fetchWithAuth('/api/channels');
-      if (!res.ok) throw new Error('Failed to fetch channels');
       const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch channels');
       
       data.sort((a: any, b: any) => {
         if (a.isLive && !b.isLive) return -1;

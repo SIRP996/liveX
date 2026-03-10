@@ -1,5 +1,4 @@
 import express from 'express';
-import { createServer as createViteServer } from 'vite';
 import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
@@ -21,12 +20,13 @@ const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-12345';
 
 // Single Firebase Initialization
 const firebaseConfig = {
-  apiKey: process.env.FIREBASE_API_KEY,
-  authDomain: process.env.FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.FIREBASE_PROJECT_ID,
-  storageBucket: process.env.FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.FIREBASE_APP_ID
+  apiKey: "AIzaSyA5eKymLFvDLWXdodk-AvDP6P9dzjhmnI4",
+  authDomain: "tiktok-live-monitor-b6c4d.firebaseapp.com",
+  projectId: "tiktok-live-monitor-b6c4d",
+  storageBucket: "tiktok-live-monitor-b6c4d.firebasestorage.app",
+  messagingSenderId: "153939223108",
+  appId: "1:153939223108:web:657026dc9314e31dbb5211",
+  measurementId: "G-RZXTMEMNFM"
 };
 
 let db: any = null;
@@ -39,7 +39,7 @@ if (firebaseConfig.projectId && firebaseConfig.apiKey) {
     console.error('Firebase init error:', e);
   }
 } else {
-  console.warn('Firebase configuration is missing in environment variables.');
+  console.warn('Firebase configuration is missing.');
 }
 
 interface UserConfig {
@@ -142,8 +142,10 @@ async function initAllServices() {
   }
 }
 
-// Initialize services after a short delay to ensure DB is ready
-setTimeout(initAllServices, 2000);
+if (!process.env.VERCEL) {
+  // Initialize services after a short delay to ensure DB is ready
+  setTimeout(initAllServices, 2000);
+}
 
 // TikTok Scraper
 async function checkTikTokLive(username: string) {
@@ -285,7 +287,9 @@ async function checkAllChannels() {
   }
 }
 
-setInterval(checkAllChannels, CHECK_INTERVAL);
+if (!process.env.VERCEL) {
+  setInterval(checkAllChannels, CHECK_INTERVAL);
+}
 
 // Auth Middleware
 const authenticate = (req: any, res: any, next: any) => {
@@ -303,7 +307,7 @@ const authenticate = (req: any, res: any, next: any) => {
 };
 
 // Auth Routes
-app.post('/api/auth/register', async (req, res) => {
+app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
   if (!db) return res.status(500).json({ error: 'Database not initialized' });
   const { username, password } = req.body;
   if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
@@ -327,7 +331,7 @@ app.post('/api/auth/register', async (req, res) => {
   res.json({ token, username });
 });
 
-app.post('/api/auth/login', async (req, res) => {
+app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
   if (!db) return res.status(500).json({ error: 'Database not initialized' });
   const { username, password } = req.body;
   
@@ -342,19 +346,19 @@ app.post('/api/auth/login', async (req, res) => {
   res.json({ token, username });
 });
 
-app.get('/api/auth/me', authenticate, (req: any, res: any) => {
+app.get(['/api/auth/me', '/auth/me'], authenticate, (req: any, res: any) => {
   res.json({ username: req.user.username });
 });
 
 // API Routes
-app.get('/api/config', authenticate, async (req: any, res: any) => {
+app.get(['/api/config', '/config'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Database not initialized' });
   const userDoc = await getDoc(doc(db, 'users', req.user.username));
   if (!userDoc.exists()) return res.status(404).json({ error: 'User not found' });
   res.json(userDoc.data().config || {});
 });
 
-app.post('/api/config', authenticate, async (req: any, res: any) => {
+app.post(['/api/config', '/config'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Database not initialized' });
   try {
     const newConfig = req.body;
@@ -372,7 +376,7 @@ app.post('/api/config', authenticate, async (req: any, res: any) => {
   }
 });
 
-app.get('/api/config-status', authenticate, (req: any, res: any) => {
+app.get(['/api/config-status', '/config-status'], authenticate, (req: any, res: any) => {
   const service = userServices.get(req.user.username);
   res.json({
     firebase: !!db,
@@ -381,7 +385,7 @@ app.get('/api/config-status', authenticate, (req: any, res: any) => {
   });
 });
 
-app.get('/api/check-live', authenticate, async (req: any, res: any) => {
+app.get(['/api/check-live', '/check-live'], authenticate, async (req: any, res: any) => {
   const { id } = req.query;
   if (!id || typeof id !== 'string') {
     return res.status(400).json({ error: 'Channel ID is required' });
@@ -395,7 +399,7 @@ app.get('/api/check-live', authenticate, async (req: any, res: any) => {
   }
 });
 
-app.get('/api/channels', authenticate, async (req: any, res: any) => {
+app.get(['/api/channels', '/channels'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   try {
     const q = query(collection(db, 'channels'), where('username', '==', req.user.username));
@@ -405,13 +409,13 @@ app.get('/api/channels', authenticate, async (req: any, res: any) => {
       channels.push({ docId: doc.id, ...doc.data() });
     });
     res.json(channels);
-  } catch (error) {
+  } catch (error: any) {
     console.error('Failed to fetch channels:', error);
-    res.status(500).json({ error: 'Failed to fetch channels' });
+    res.status(500).json({ error: 'Failed to fetch channels: ' + (error.message || error) });
   }
 });
 
-app.post('/api/channels', authenticate, async (req: any, res: any) => {
+app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: 'Channel ID is required' });
@@ -438,7 +442,7 @@ app.post('/api/channels', authenticate, async (req: any, res: any) => {
   }
 });
 
-app.post('/api/channels/bulk', authenticate, async (req: any, res: any) => {
+app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   const { ids } = req.body;
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: 'Channel IDs array is required' });
@@ -487,7 +491,7 @@ app.post('/api/channels/bulk', authenticate, async (req: any, res: any) => {
   }
 });
 
-app.delete('/api/channels/:docId', authenticate, async (req: any, res: any) => {
+app.delete(['/api/channels/:docId', '/channels/:docId'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   const { docId } = req.params;
   try {
@@ -506,6 +510,7 @@ app.delete('/api/channels/:docId', authenticate, async (req: any, res: any) => {
 
 async function startServer() {
   if (process.env.NODE_ENV !== 'production') {
+    const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: 'spa',
@@ -520,4 +525,8 @@ async function startServer() {
   });
 }
 
-startServer();
+if (!process.env.VERCEL) {
+  startServer();
+}
+
+export default app;
