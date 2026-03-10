@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -20,7 +20,139 @@ interface ConfigStatus {
   telegramChatId: boolean;
 }
 
+const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
+  const token = localStorage.getItem('token');
+  const headers: any = {
+    ...options.headers,
+  };
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`;
+  }
+  const res = await fetch(url, { ...options, headers });
+  if (res.status === 401) {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    window.location.reload();
+  }
+  return res;
+};
+
 export default function App() {
+  const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
+  const [username, setUsername] = useState(localStorage.getItem('username') || '');
+
+  if (!isAuthenticated) {
+    return <AuthScreen onLogin={(user, token) => {
+      localStorage.setItem('token', token);
+      localStorage.setItem('username', user);
+      setUsername(user);
+      setIsAuthenticated(true);
+    }} />;
+  }
+
+  return <MainApp username={username} onLogout={() => {
+    localStorage.removeItem('token');
+    localStorage.removeItem('username');
+    setIsAuthenticated(false);
+  }} />;
+}
+
+function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) => void }) {
+  const [isLogin, setIsLogin] = useState(true);
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLoading(true);
+    setError('');
+    
+    try {
+      const endpoint = isLogin ? '/api/auth/login' : '/api/auth/register';
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      });
+      
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Authentication failed');
+      
+      onLogin(data.username, data.token);
+    } catch (err: any) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4 font-sans">
+      <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md border border-zinc-100">
+        <div className="flex justify-center mb-6">
+          <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center">
+            <Activity className="w-8 h-8 text-emerald-600" />
+          </div>
+        </div>
+        <h1 className="text-2xl font-bold text-center text-zinc-900 mb-2">
+          {isLogin ? 'Đăng nhập' : 'Đăng ký tài khoản'}
+        </h1>
+        <p className="text-center text-zinc-500 mb-8">
+          {isLogin ? 'Chào mừng trở lại! Vui lòng đăng nhập.' : 'Tạo tài khoản để lưu cấu hình của bạn.'}
+        </p>
+
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">Tên đăng nhập</label>
+            <input
+              type="text"
+              required
+              value={username}
+              onChange={e => setUsername(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              placeholder="Nhập tên đăng nhập"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">Mật khẩu</label>
+            <input
+              type="password"
+              required
+              value={password}
+              onChange={e => setPassword(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
+              placeholder="Nhập mật khẩu"
+            />
+          </div>
+
+          {error && <div className="p-3 bg-red-50 text-red-600 text-sm rounded-xl border border-red-100">{error}</div>}
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="w-full bg-zinc-900 hover:bg-zinc-800 text-white font-medium py-3 rounded-xl transition-colors flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : (isLogin ? <LogIn className="w-5 h-5" /> : <UserPlus className="w-5 h-5" />)}
+            {isLogin ? 'Đăng nhập' : 'Đăng ký'}
+          </button>
+        </form>
+
+        <div className="mt-6 text-center">
+          <button
+            onClick={() => { setIsLogin(!isLogin); setError(''); }}
+            className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
+          >
+            {isLogin ? 'Chưa có tài khoản? Đăng ký ngay' : 'Đã có tài khoản? Đăng nhập'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MainApp({ username, onLogout }: { username: string, onLogout: () => void }) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [filter, setFilter] = useState<'all' | 'live' | 'off'>('all');
   const [newChannel, setNewChannel] = useState('');
@@ -34,11 +166,10 @@ export default function App() {
 
   const fetchChannels = async () => {
     try {
-      const res = await fetch('/api/channels');
+      const res = await fetchWithAuth('/api/channels');
       if (!res.ok) throw new Error('Failed to fetch channels');
       const data = await res.json();
       
-      // Sort: Live first, then by lastLiveAt (newest first), then by id
       data.sort((a: any, b: any) => {
         if (a.isLive && !b.isLive) return -1;
         if (!a.isLive && b.isLive) return 1;
@@ -58,7 +189,7 @@ export default function App() {
 
   const fetchConfigStatus = async () => {
     try {
-      const res = await fetch('/api/config-status');
+      const res = await fetchWithAuth('/api/config-status');
       const data = await res.json();
       setConfigStatus(data);
     } catch (err: any) {
@@ -69,7 +200,7 @@ export default function App() {
   useEffect(() => {
     fetchConfigStatus();
     fetchChannels();
-    const interval = setInterval(fetchChannels, 30000); // Refresh every 30s
+    const interval = setInterval(fetchChannels, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -80,7 +211,7 @@ export default function App() {
     setError('');
     setCheckResult(null);
     try {
-      const res = await fetch(`/api/check-live?id=${newChannel.trim()}`);
+      const res = await fetchWithAuth(`/api/check-live?id=${newChannel.trim()}`);
       const data = await res.json();
       
       if (!res.ok) throw new Error(data.error || 'Failed to check channel');
@@ -109,7 +240,7 @@ export default function App() {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch('/api/channels', {
+      const res = await fetchWithAuth('/api/channels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id: newChannel.trim() }),
@@ -131,7 +262,7 @@ export default function App() {
     if (!confirm('Bạn có chắc chắn muốn xóa kênh này?')) return;
     
     try {
-      const res = await fetch(`/api/channels/${docId}`, {
+      const res = await fetchWithAuth(`/api/channels/${docId}`, {
         method: 'DELETE',
       });
       if (!res.ok) throw new Error('Failed to delete channel');
@@ -152,7 +283,12 @@ export default function App() {
               <Activity className="text-emerald-500" />
               TikTok Live Monitor
             </h1>
-            <p className="text-zinc-500 mt-1">Tự động theo dõi và thông báo qua Telegram</p>
+            <p className="text-zinc-500 mt-1 flex items-center gap-2">
+              Xin chào, <span className="font-semibold text-zinc-900">{username}</span>
+              <button onClick={onLogout} className="text-xs bg-zinc-200 hover:bg-zinc-300 px-2 py-1 rounded-md transition-colors flex items-center gap-1">
+                <LogOut className="w-3 h-3" /> Đăng xuất
+              </button>
+            </p>
           </div>
           <div className="flex items-center gap-3">
             <button 
@@ -425,7 +561,7 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    fetch('/api/config')
+    fetchWithAuth('/api/config')
       .then(res => res.json())
       .then(data => {
         setConfig(data);
@@ -445,7 +581,7 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
     e.preventDefault();
     setSaving(true);
     try {
-      const res = await fetch('/api/config', {
+      const res = await fetchWithAuth('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(config)
@@ -558,7 +694,7 @@ function ImportModal({ onClose, onSaved }: { onClose: () => void, onSaved: () =>
     setProgress(`Đang xử lý ${ids.length} kênh... Vui lòng đợi.`);
     
     try {
-      const res = await fetch('/api/channels/bulk', {
+      const res = await fetchWithAuth('/api/channels/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids })
@@ -621,14 +757,12 @@ function ImportModal({ onClose, onSaved }: { onClose: () => void, onSaved: () =>
     setError('');
     
     try {
-      // Extract sheet ID from URL
       const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
       if (!match) {
         throw new Error('Link Google Sheet không hợp lệ.');
       }
       const sheetId = match[1];
       
-      // Fetch as CSV
       const csvUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export?format=csv`;
       const res = await fetch(csvUrl);
       if (!res.ok) throw new Error('Không thể đọc Google Sheet. Hãy đảm bảo file đã được share "Anyone with the link".');

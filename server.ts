@@ -3,11 +3,13 @@ import { createServer as createViteServer } from 'vite';
 import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
-import { initializeApp, getApps, deleteApp } from 'firebase/app';
+import { initializeApp, getApps, deleteApp, getApp } from 'firebase/app';
 import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch } from 'firebase/firestore';
 import dotenv from 'dotenv';
 import fs from 'fs';
 import path from 'path';
+import jwt from 'jsonwebtoken';
+import bcrypt from 'bcryptjs';
 
 dotenv.config();
 
@@ -16,92 +18,111 @@ const PORT = 3000;
 
 app.use(express.json());
 
-const CONFIG_FILE = path.join(process.cwd(), 'config.json');
+const USERS_FILE = path.join(process.cwd(), 'users.json');
+const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-12345';
 
-let appConfig = {
-  firebaseApiKey: process.env.FIREBASE_API_KEY || '',
-  firebaseAuthDomain: process.env.FIREBASE_AUTH_DOMAIN || '',
-  firebaseProjectId: process.env.FIREBASE_PROJECT_ID || '',
-  firebaseStorageBucket: process.env.FIREBASE_STORAGE_BUCKET || '',
-  firebaseMessagingSenderId: process.env.FIREBASE_MESSAGING_SENDER_ID || '',
-  firebaseAppId: process.env.FIREBASE_APP_ID || '',
-  telegramBotToken: process.env.TELEGRAM_BOT_TOKEN || '',
-  telegramChatId: process.env.TELEGRAM_CHAT_ID || ''
-};
+interface UserConfig {
+  firebaseApiKey: string;
+  firebaseAuthDomain: string;
+  firebaseProjectId: string;
+  firebaseStorageBucket: string;
+  firebaseMessagingSenderId: string;
+  firebaseAppId: string;
+  telegramBotToken: string;
+  telegramChatId: string;
+}
 
-function loadConfig() {
+interface User {
+  username: string;
+  passwordHash: string;
+  config: UserConfig;
+}
+
+let users: Record<string, User> = {};
+
+function loadUsers() {
   try {
-    if (fs.existsSync(CONFIG_FILE)) {
-      const data = fs.readFileSync(CONFIG_FILE, 'utf8');
-      const parsed = JSON.parse(data);
-      appConfig = { ...appConfig, ...parsed };
+    if (fs.existsSync(USERS_FILE)) {
+      const data = fs.readFileSync(USERS_FILE, 'utf8');
+      users = JSON.parse(data);
     }
   } catch (e) {
-    console.error('Error loading config:', e);
+    console.error('Error loading users:', e);
   }
 }
 
-loadConfig();
+function saveUsers() {
+  try {
+    fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+  } catch (e) {
+    console.error('Error saving users:', e);
+  }
+}
 
-let db: any = null;
-let bot: TelegramBot | null = null;
-let currentChatId = '';
+loadUsers();
 
-async function initServices() {
+const userServices = new Map<string, { db: any, bot: TelegramBot | null, chatId: string }>();
+
+async function initUserService(username: string) {
+  const user = users[username];
+  if (!user) return;
+
+  const config = user.config;
+  let db = null;
+  let bot = null;
+
   // Firebase Setup
   const firebaseConfig = {
-    apiKey: appConfig.firebaseApiKey,
-    authDomain: appConfig.firebaseAuthDomain,
-    projectId: appConfig.firebaseProjectId,
-    storageBucket: appConfig.firebaseStorageBucket,
-    messagingSenderId: appConfig.firebaseMessagingSenderId,
-    appId: appConfig.firebaseAppId
+    apiKey: config.firebaseApiKey,
+    authDomain: config.firebaseAuthDomain,
+    projectId: config.firebaseProjectId,
+    storageBucket: config.firebaseStorageBucket,
+    messagingSenderId: config.firebaseMessagingSenderId,
+    appId: config.firebaseAppId
   };
 
   if (firebaseConfig.projectId && firebaseConfig.apiKey) {
     try {
-      const apps = getApps();
-      if (apps.length > 0) {
-        await deleteApp(apps[0]);
+      const appName = `app_${username}`;
+      let firebaseApp;
+      try {
+        firebaseApp = getApp(appName);
+        await deleteApp(firebaseApp);
+      } catch (e) {
+        // App doesn't exist
       }
-      const firebaseApp = initializeApp(firebaseConfig);
+      firebaseApp = initializeApp(firebaseConfig, appName);
       db = getFirestore(firebaseApp);
-      console.log('Firebase initialized');
+      console.log(`Firebase initialized for ${username}`);
     } catch (e) {
-      console.error('Firebase init error:', e);
-      db = null;
+      console.error(`Firebase init error for ${username}:`, e);
     }
-  } else {
-    db = null;
-    console.warn('Firebase config missing.');
   }
 
   // Telegram Bot Setup
-  if (bot) {
+  const existingService = userServices.get(username);
+  if (existingService?.bot) {
     try {
-      await bot.stopPolling();
+      await existingService.bot.stopPolling();
     } catch (e) {
-      console.error('Error stopping bot polling:', e);
+      console.error(`Error stopping bot polling for ${username}:`, e);
     }
-    bot = null;
   }
 
-  const token = appConfig.telegramBotToken;
-  currentChatId = appConfig.telegramChatId;
-
-  if (token) {
+  if (config.telegramBotToken) {
     try {
-      bot = new TelegramBot(token, { polling: true });
-      console.log('Telegram bot initialized');
+      bot = new TelegramBot(config.telegramBotToken, { polling: true });
+      console.log(`Telegram bot initialized for ${username}`);
 
       bot.onText(/\/check/, async (msg) => {
         const chatId = msg.chat.id;
-        if (!db) {
+        const service = userServices.get(username);
+        if (!service || !service.db) {
           bot?.sendMessage(chatId, 'Firebase is not configured.');
           return;
         }
         try {
-          const querySnapshot = await getDocs(collection(db, 'channels'));
+          const querySnapshot = await getDocs(collection(service.db, 'channels'));
           const liveChannels: string[] = [];
           querySnapshot.forEach((doc) => {
             const data = doc.data();
@@ -143,13 +164,21 @@ async function initServices() {
         }
       });
     } catch (e) {
-      console.error('Telegram bot init error:', e);
+      console.error(`Telegram bot init error for ${username}:`, e);
       bot = null;
     }
   }
+
+  userServices.set(username, { db, bot, chatId: config.telegramChatId });
 }
 
-initServices();
+async function initAllServices() {
+  for (const username of Object.keys(users)) {
+    await initUserService(username);
+  }
+}
+
+initAllServices();
 
 // TikTok Scraper
 async function checkTikTokLive(username: string) {
@@ -199,71 +228,132 @@ async function checkTikTokLive(username: string) {
 const CHECK_INTERVAL = 60 * 1000;
 
 async function checkAllChannels() {
-  if (!db || !bot || !currentChatId) return;
-  
-  try {
-    const querySnapshot = await getDocs(collection(db, 'channels'));
-    const channels: any[] = [];
-    querySnapshot.forEach((doc) => {
-      channels.push({ docId: doc.id, ...doc.data() });
-    });
+  for (const [username, service] of userServices.entries()) {
+    if (!service.db || !service.bot || !service.chatId) continue;
+    
+    try {
+      const querySnapshot = await getDocs(collection(service.db, 'channels'));
+      const channels: any[] = [];
+      querySnapshot.forEach((doc) => {
+        channels.push({ docId: doc.id, ...doc.data() });
+      });
 
-    for (const channel of channels) {
-      const status = await checkTikTokLive(channel.id);
-      
-      if (status.isLive && !channel.isLive) {
-        console.log(`${channel.id} is now LIVE!`);
+      for (const channel of channels) {
+        const status = await checkTikTokLive(channel.id);
         
-        await updateDoc(doc(db, 'channels', channel.docId), {
-          isLive: true,
-          lastLiveAt: new Date().toISOString(),
-          coverUrl: status.coverUrl || null,
-          title: status.title || '',
-          viewerCount: status.viewerCount || 0
-        });
+        if (status.isLive && !channel.isLive) {
+          console.log(`${channel.id} is now LIVE for ${username}!`);
+          
+          await updateDoc(doc(service.db, 'channels', channel.docId), {
+            isLive: true,
+            lastLiveAt: new Date().toISOString(),
+            coverUrl: status.coverUrl || null,
+            title: status.title || '',
+            viewerCount: status.viewerCount || 0
+          });
 
-        const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
-        
-        if (status.coverUrl) {
-          bot.sendPhoto(currentChatId, status.coverUrl, { caption: message, parse_mode: 'HTML' }).catch(e => console.error(e));
-        } else {
-          bot.sendMessage(currentChatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
+          const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
+          
+          if (status.coverUrl) {
+            service.bot.sendPhoto(service.chatId, status.coverUrl, { caption: message, parse_mode: 'HTML' }).catch(e => console.error(e));
+          } else {
+            service.bot.sendMessage(service.chatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
+          }
+        } 
+        else if (status.isLive && channel.isLive) {
+          await updateDoc(doc(service.db, 'channels', channel.docId), {
+            viewerCount: status.viewerCount || 0
+          });
         }
-      } 
-      else if (status.isLive && channel.isLive) {
-        // Update viewer count if already live
-        await updateDoc(doc(db, 'channels', channel.docId), {
-          viewerCount: status.viewerCount || 0
-        });
+        else if (!status.isLive && channel.isLive) {
+          console.log(`${channel.id} is now OFFLINE for ${username}.`);
+          await updateDoc(doc(service.db, 'channels', channel.docId), {
+            isLive: false,
+            viewerCount: 0
+          });
+        }
+        
+        await new Promise(resolve => setTimeout(resolve, 2000));
       }
-      else if (!status.isLive && channel.isLive) {
-        console.log(`${channel.id} is now OFFLINE.`);
-        await updateDoc(doc(db, 'channels', channel.docId), {
-          isLive: false,
-          viewerCount: 0
-        });
-      }
-      
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    } catch (error) {
+      console.error(`Error in background worker for ${username}:`, error);
     }
-  } catch (error) {
-    console.error('Error in background worker:', error);
   }
 }
 
 setInterval(checkAllChannels, CHECK_INTERVAL);
 
-// API Routes
-app.get('/api/config', (req, res) => {
-  res.json(appConfig);
+// Auth Middleware
+const authenticate = (req: any, res: any, next: any) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
+
+  const token = authHeader.split(' ')[1];
+  try {
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (e) {
+    res.status(401).json({ error: 'Invalid token' });
+  }
+};
+
+// Auth Routes
+app.post('/api/auth/register', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+  if (users[username]) return res.status(400).json({ error: 'Username already exists' });
+
+  const passwordHash = await bcrypt.hash(password, 10);
+  users[username] = {
+    username,
+    passwordHash,
+    config: {
+      firebaseApiKey: '',
+      firebaseAuthDomain: '',
+      firebaseProjectId: '',
+      firebaseStorageBucket: '',
+      firebaseMessagingSenderId: '',
+      firebaseAppId: '',
+      telegramBotToken: '',
+      telegramChatId: ''
+    }
+  };
+  saveUsers();
+
+  const token = jwt.sign({ username }, JWT_SECRET);
+  res.json({ token, username });
 });
 
-app.post('/api/config', async (req, res) => {
+app.post('/api/auth/login', async (req, res) => {
+  const { username, password } = req.body;
+  const user = users[username];
+  if (!user) return res.status(400).json({ error: 'Invalid credentials' });
+
+  const valid = await bcrypt.compare(password, user.passwordHash);
+  if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
+
+  const token = jwt.sign({ username }, JWT_SECRET);
+  res.json({ token, username });
+});
+
+app.get('/api/auth/me', authenticate, (req: any, res: any) => {
+  res.json({ username: req.user.username });
+});
+
+// API Routes
+app.get('/api/config', authenticate, (req: any, res: any) => {
+  const user = users[req.user.username];
+  res.json(user.config);
+});
+
+app.post('/api/config', authenticate, async (req: any, res: any) => {
   try {
     const newConfig = req.body;
-    appConfig = { ...appConfig, ...newConfig };
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify(appConfig, null, 2));
-    await initServices();
+    const username = req.user.username;
+    users[username].config = { ...users[username].config, ...newConfig };
+    saveUsers();
+    await initUserService(username);
     res.json({ success: true });
   } catch (error) {
     console.error('Failed to save config:', error);
@@ -271,15 +361,16 @@ app.post('/api/config', async (req, res) => {
   }
 });
 
-app.get('/api/config-status', (req, res) => {
+app.get('/api/config-status', authenticate, (req: any, res: any) => {
+  const service = userServices.get(req.user.username);
   res.json({
-    firebase: !!db,
-    telegramBot: !!bot,
-    telegramChatId: !!currentChatId
+    firebase: !!service?.db,
+    telegramBot: !!service?.bot,
+    telegramChatId: !!service?.chatId
   });
 });
 
-app.get('/api/check-live', async (req, res) => {
+app.get('/api/check-live', authenticate, async (req: any, res: any) => {
   const { id } = req.query;
   if (!id || typeof id !== 'string') {
     return res.status(400).json({ error: 'Channel ID is required' });
@@ -293,10 +384,11 @@ app.get('/api/check-live', async (req, res) => {
   }
 });
 
-app.get('/api/channels', async (req, res) => {
-  if (!db) return res.json([]);
+app.get('/api/channels', authenticate, async (req: any, res: any) => {
+  const service = userServices.get(req.user.username);
+  if (!service?.db) return res.json([]);
   try {
-    const querySnapshot = await getDocs(collection(db, 'channels'));
+    const querySnapshot = await getDocs(collection(service.db, 'channels'));
     const channels: any[] = [];
     querySnapshot.forEach((doc) => {
       channels.push({ docId: doc.id, ...doc.data() });
@@ -308,13 +400,14 @@ app.get('/api/channels', async (req, res) => {
   }
 });
 
-app.post('/api/channels', async (req, res) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+app.post('/api/channels', authenticate, async (req: any, res: any) => {
+  const service = userServices.get(req.user.username);
+  if (!service?.db) return res.status(500).json({ error: 'Firebase not configured' });
   const { id } = req.body;
   if (!id) return res.status(400).json({ error: 'Channel ID is required' });
   
   try {
-    const querySnapshot = await getDocs(collection(db, 'channels'));
+    const querySnapshot = await getDocs(collection(service.db, 'channels'));
     let exists = false;
     querySnapshot.forEach((doc) => {
       if (doc.data().id === id) exists = true;
@@ -330,41 +423,38 @@ app.post('/api/channels', async (req, res) => {
       addedAt: new Date().toISOString()
     };
     
-    await setDoc(doc(collection(db, 'channels')), newChannel);
+    await setDoc(doc(collection(service.db, 'channels')), newChannel);
     res.json({ success: true, channel: newChannel });
   } catch (error) {
     res.status(500).json({ error: 'Failed to add channel' });
   }
 });
 
-app.post('/api/channels/bulk', async (req, res) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+app.post('/api/channels/bulk', authenticate, async (req: any, res: any) => {
+  const service = userServices.get(req.user.username);
+  if (!service?.db) return res.status(500).json({ error: 'Firebase not configured' });
   const { ids } = req.body;
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: 'Channel IDs array is required' });
   
   try {
-    console.log('Fetching existing channels...');
-    const querySnapshot = await getDocs(collection(db, 'channels'));
+    const querySnapshot = await getDocs(collection(service.db, 'channels'));
     const existingIds = new Set();
     querySnapshot.forEach((doc) => {
       existingIds.add(doc.data().id);
     });
-    console.log('Existing channels fetched.');
     
     const addedChannels = [];
     let addedCount = 0;
     
-    // Filter and deduplicate new IDs
     const uniqueNewIds = [...new Set(
       ids.map(id => id.trim().replace(/^@/, ''))
          .filter(id => id && !existingIds.has(id))
     )];
 
-    // Process in batches of 400 (Firebase limit is 500)
     const chunkSize = 400;
     for (let i = 0; i < uniqueNewIds.length; i += chunkSize) {
       const chunk = uniqueNewIds.slice(i, i + chunkSize);
-      const batch = writeBatch(db);
+      const batch = writeBatch(service.db);
       
       for (const cleanId of chunk) {
         const newChannel = {
@@ -372,7 +462,7 @@ app.post('/api/channels/bulk', async (req, res) => {
           isLive: false,
           addedAt: new Date().toISOString()
         };
-        const newDocRef = doc(collection(db, 'channels'));
+        const newDocRef = doc(collection(service.db, 'channels'));
         batch.set(newDocRef, newChannel);
         addedChannels.push(newChannel);
         addedCount++;
@@ -388,11 +478,12 @@ app.post('/api/channels/bulk', async (req, res) => {
   }
 });
 
-app.delete('/api/channels/:docId', async (req, res) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+app.delete('/api/channels/:docId', authenticate, async (req: any, res: any) => {
+  const service = userServices.get(req.user.username);
+  if (!service?.db) return res.status(500).json({ error: 'Firebase not configured' });
   const { docId } = req.params;
   try {
-    await deleteDoc(doc(db, 'channels', docId));
+    await deleteDoc(doc(service.db, 'channels', docId));
     res.json({ success: true });
   } catch (error) {
     res.status(500).json({ error: 'Failed to delete channel' });
