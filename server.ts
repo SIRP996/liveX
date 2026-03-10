@@ -177,20 +177,21 @@ async function checkTikTokLive(username: string) {
         return { 
           isLive: true, 
           coverUrl: userInfo?.liveRoom?.coverUrl || userInfo?.user?.avatarLarger || null,
-          title: userInfo?.liveRoom?.title || ''
+          title: userInfo?.liveRoom?.title || '',
+          viewerCount: userInfo?.liveRoom?.userCount || 0
         };
       }
     }
     
     const html = response.data;
     if (html.includes('room_id') && html.includes('live_room')) {
-       return { isLive: true, coverUrl: null, title: '' };
+       return { isLive: true, coverUrl: null, title: '', viewerCount: 0 };
     }
 
-    return { isLive: false };
+    return { isLive: false, viewerCount: 0 };
   } catch (error: any) {
     console.error(`Error checking TikTok for ${username}:`, error.message);
-    return { isLive: false };
+    return { isLive: false, viewerCount: 0 };
   }
 }
 
@@ -217,10 +218,11 @@ async function checkAllChannels() {
           isLive: true,
           lastLiveAt: new Date().toISOString(),
           coverUrl: status.coverUrl || null,
-          title: status.title || ''
+          title: status.title || '',
+          viewerCount: status.viewerCount || 0
         });
 
-        const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Link: https://www.tiktok.com/@${channel.id}/live`;
+        const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
         
         if (status.coverUrl) {
           bot.sendPhoto(currentChatId, status.coverUrl, { caption: message, parse_mode: 'HTML' }).catch(e => console.error(e));
@@ -228,10 +230,17 @@ async function checkAllChannels() {
           bot.sendMessage(currentChatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
         }
       } 
+      else if (status.isLive && channel.isLive) {
+        // Update viewer count if already live
+        await updateDoc(doc(db, 'channels', channel.docId), {
+          viewerCount: status.viewerCount || 0
+        });
+      }
       else if (!status.isLive && channel.isLive) {
         console.log(`${channel.id} is now OFFLINE.`);
         await updateDoc(doc(db, 'channels', channel.docId), {
-          isLive: false
+          isLive: false,
+          viewerCount: 0
         });
       }
       

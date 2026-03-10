@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -11,6 +11,7 @@ interface Channel {
   lastLiveAt?: string;
   coverUrl?: string;
   title?: string;
+  viewerCount?: number;
 }
 
 interface ConfigStatus {
@@ -21,6 +22,7 @@ interface ConfigStatus {
 
 export default function App() {
   const [channels, setChannels] = useState<Channel[]>([]);
+  const [filter, setFilter] = useState<'all' | 'live' | 'off'>('all');
   const [newChannel, setNewChannel] = useState('');
   const [loading, setLoading] = useState(false);
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
@@ -274,12 +276,34 @@ export default function App() {
           <div className="md:col-span-2 space-y-4">
             <div className="flex items-center justify-between">
               <h2 className="text-lg font-semibold">Danh sách kênh ({channels.length})</h2>
-              <button 
-                onClick={fetchChannels}
-                className="text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 text-sm"
-              >
-                <RefreshCw className="w-4 h-4" /> Làm mới
-              </button>
+              <div className="flex items-center gap-4">
+                <div className="flex bg-zinc-100 p-1 rounded-lg">
+                  <button
+                    onClick={() => setFilter('all')}
+                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${filter === 'all' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                  >
+                    Tất cả ({channels.length})
+                  </button>
+                  <button
+                    onClick={() => setFilter('live')}
+                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${filter === 'live' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                  >
+                    Đang Live ({channels.filter(c => c.isLive).length})
+                  </button>
+                  <button
+                    onClick={() => setFilter('off')}
+                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${filter === 'off' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                  >
+                    Offline ({channels.filter(c => !c.isLive).length})
+                  </button>
+                </div>
+                <button 
+                  onClick={fetchChannels}
+                  className="text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 text-sm"
+                >
+                  <RefreshCw className="w-4 h-4" /> Làm mới
+                </button>
+              </div>
             </div>
             
             {channels.length === 0 ? (
@@ -288,7 +312,7 @@ export default function App() {
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-                {channels.map((channel) => (
+                {channels.filter(c => filter === 'all' ? true : filter === 'live' ? c.isLive : !c.isLive).map((channel) => (
                   <div key={channel.docId} className="bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center text-center group transition-all hover:shadow-md relative">
                     <button
                       onClick={() => handleDeleteChannel(channel.docId)}
@@ -326,10 +350,15 @@ export default function App() {
                     
                     <div className="text-xs text-zinc-500 mt-1.5 w-full flex justify-center">
                       {channel.isLive ? (
-                        <span className="inline-flex items-center gap-1.5 text-red-600 font-medium bg-red-50 px-2.5 py-1 rounded-full border border-red-100">
-                          <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                          Đang LIVE
-                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className="inline-flex items-center gap-1.5 text-red-600 font-medium bg-red-50 px-2.5 py-1 rounded-full border border-red-100">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
+                            Đang LIVE
+                          </span>
+                          <span className="text-zinc-500 font-medium flex items-center gap-1">
+                            <Users className="w-3 h-3" /> {channel.viewerCount?.toLocaleString() || 0}
+                          </span>
+                        </div>
                       ) : (
                         <span className="truncate block w-full text-zinc-400" title={channel.lastLiveAt ? `Live lần cuối: ${formatDistanceToNow(new Date(channel.lastLiveAt), { addSuffix: true })}` : 'Chưa từng live'}>
                           {channel.lastLiveAt 
