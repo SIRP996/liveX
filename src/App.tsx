@@ -232,8 +232,8 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     e.preventDefault();
     if (!newChannel.trim()) return;
     
-    if (!configStatus?.firebase) {
-      setError('Vui lòng cấu hình Firebase trước khi thêm kênh.');
+    if (!configStatus?.telegramBot) {
+      setError('Vui lòng cấu hình Telegram Bot trước khi thêm kênh.');
       return;
     }
     
@@ -317,7 +317,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 Trạng thái hệ thống
               </h2>
               <p className="text-sm text-zinc-500">
-                {!configStatus.firebase || !configStatus.telegramBot ? 'Vui lòng nhấn nút Cấu hình ở góc trên để thiết lập hệ thống.' : 'Hệ thống đang hoạt động bình thường.'}
+                {!configStatus.telegramBot ? 'Vui lòng nhấn nút Cấu hình ở góc trên để thiết lập hệ thống.' : 'Hệ thống đang hoạt động bình thường.'}
               </p>
             </div>
             
@@ -372,9 +372,9 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   </div>
                 )}
 
-                {!configStatus?.firebase && (
+                {!configStatus?.telegramBot && (
                   <p className="text-amber-600 text-sm bg-amber-50 p-2 rounded-lg border border-amber-200">
-                    ⚠️ Vui lòng cấu hình Firebase ở nút "Cấu hình" góc trên bên phải trước khi thêm kênh.
+                    ⚠️ Vui lòng cấu hình Telegram Bot ở nút "Cấu hình" góc trên bên phải trước khi thêm kênh.
                   </p>
                 )}
                 <div className="flex gap-2">
@@ -548,12 +548,6 @@ function StatusBadge({ label, active }: { label: string; active: boolean }) {
 
 function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () => void }) {
   const [config, setConfig] = useState({
-    firebaseApiKey: '',
-    firebaseAuthDomain: '',
-    firebaseProjectId: '',
-    firebaseStorageBucket: '',
-    firebaseMessagingSenderId: '',
-    firebaseAppId: '',
     telegramBotToken: '',
     telegramChatId: ''
   });
@@ -617,18 +611,6 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
         <div className="p-6 overflow-y-auto flex-1">
           <form id="config-form" onSubmit={handleSave} className="space-y-8">
             
-            <div className="space-y-4">
-              <h3 className="text-lg font-semibold text-emerald-600 border-b pb-2">Firebase Configuration</h3>
-              <div className="grid md:grid-cols-2 gap-4">
-                <InputField label="API Key" name="firebaseApiKey" value={config.firebaseApiKey} onChange={handleChange} />
-                <InputField label="Auth Domain" name="firebaseAuthDomain" value={config.firebaseAuthDomain} onChange={handleChange} />
-                <InputField label="Project ID" name="firebaseProjectId" value={config.firebaseProjectId} onChange={handleChange} />
-                <InputField label="Storage Bucket" name="firebaseStorageBucket" value={config.firebaseStorageBucket} onChange={handleChange} />
-                <InputField label="Messaging Sender ID" name="firebaseMessagingSenderId" value={config.firebaseMessagingSenderId} onChange={handleChange} />
-                <InputField label="App ID" name="firebaseAppId" value={config.firebaseAppId} onChange={handleChange} />
-              </div>
-            </div>
-
             <div className="space-y-4">
               <h3 className="text-lg font-semibold text-blue-600 border-b pb-2">Telegram Configuration</h3>
               <div className="grid md:grid-cols-2 gap-4">
