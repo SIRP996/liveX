@@ -249,6 +249,9 @@ async function checkTikTokLive(username: string) {
 
     return { isLive: false, viewerCount: 0 };
   } catch (error: any) {
+    if (error.response && error.response.status === 404) {
+      return { isLive: false, viewerCount: 0 };
+    }
     console.error(`Error checking TikTok for ${username}:`, error.message);
     return { isLive: false, viewerCount: 0, error: true };
   }
@@ -289,7 +292,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       channels.push({ docId: doc.id, ...doc.data() });
     });
 
-    for (const channel of channels) {
+    const processChannel = async (channel: any) => {
       let sessions = channel.sessions || [];
       let needsUpdate = false;
       let updateData: any = {};
@@ -307,7 +310,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
         if (needsUpdate) {
           await updateDoc(doc(db, 'channels', channel.docId), updateData);
         }
-        continue;
+        return;
       }
 
       if (status.isLive && !channel.isLive) {
@@ -330,9 +333,9 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
 
         const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
         
-        if (status.coverUrl) {
+        if (status.coverUrl && service?.bot && service?.chatId) {
           service.bot.sendPhoto(service.chatId, status.coverUrl, { caption: message, parse_mode: 'HTML' }).catch(e => console.error(e));
-        } else {
+        } else if (service?.bot && service?.chatId) {
           service.bot.sendMessage(service.chatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
         }
       } 
@@ -369,9 +372,24 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       } else if (needsUpdate) {
         await updateDoc(doc(db, 'channels', channel.docId), updateData);
       }
-      
-      await new Promise(resolve => setTimeout(resolve, 2000));
+    };
+
+    const CONCURRENCY = 50;
+    const workers = [];
+    let index = 0;
+    
+    const worker = async () => {
+      while (index < channels.length) {
+        const currentIndex = index++;
+        await processChannel(channels[currentIndex]);
+      }
+    };
+    
+    for (let i = 0; i < Math.min(CONCURRENCY, channels.length); i++) {
+      workers.push(worker());
     }
+    
+    await Promise.all(workers);
   } catch (error) {
     console.error(`Error in background worker for ${username}:`, error);
   }
