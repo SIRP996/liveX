@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -164,6 +164,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
   const [filter, setFilter] = useState<'all' | 'live' | 'off'>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [sortOrder, setSortOrder] = useState<'desc' | 'asc' | 'none'>('none');
+  const [gridCols, setGridCols] = useState<number>(6);
   const [newChannel, setNewChannel] = useState('');
   const [loading, setLoading] = useState(false);
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
@@ -485,13 +486,28 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
-              <button
-                onClick={() => setSortOrder(prev => prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none')}
-                className={`flex items-center justify-center gap-2 px-4 py-2 bg-white border rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${sortOrder !== 'none' ? 'border-emerald-200 text-emerald-700 bg-emerald-50' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'}`}
-              >
-                {sortOrder === 'desc' ? <ArrowDown className="w-4 h-4" /> : sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
-                {sortOrder === 'desc' ? 'Lượt xem: Cao đến thấp' : sortOrder === 'asc' ? 'Lượt xem: Thấp đến cao' : 'Sắp xếp: Mặc định'}
-              </button>
+              <div className="flex items-center gap-2">
+                <div className="hidden md:flex items-center gap-1 bg-white border border-zinc-200 rounded-xl p-1">
+                  <LayoutGrid className="w-4 h-4 text-zinc-400 mx-2" />
+                  {[3, 4, 5, 6, 7, 8].map(cols => (
+                    <button
+                      key={cols}
+                      onClick={() => setGridCols(cols)}
+                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-medium transition-colors ${gridCols === cols ? 'bg-zinc-100 text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'}`}
+                      title={`${cols} cột`}
+                    >
+                      {cols}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setSortOrder(prev => prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none')}
+                  className={`flex items-center justify-center gap-2 px-4 py-2 bg-white border rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${sortOrder !== 'none' ? 'border-emerald-200 text-emerald-700 bg-emerald-50' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'}`}
+                >
+                  {sortOrder === 'desc' ? <ArrowDown className="w-4 h-4" /> : sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
+                  {sortOrder === 'desc' ? 'Lượt xem: Cao đến thấp' : sortOrder === 'asc' ? 'Lượt xem: Thấp đến cao' : 'Sắp xếp: Mặc định'}
+                </button>
+              </div>
             </div>
             
             {processedChannels.length === 0 ? (
@@ -499,7 +515,15 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 <p className="text-zinc-500">Không tìm thấy kênh nào.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4">
+              <div className={`grid gap-4 ${
+                gridCols === 3 ? 'grid-cols-2 sm:grid-cols-3' :
+                gridCols === 4 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4' :
+                gridCols === 5 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5' :
+                gridCols === 6 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6' :
+                gridCols === 7 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7' :
+                gridCols === 8 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8' :
+                'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8'
+              }`}>
                 {processedChannels.map((channel) => (
                   <div key={channel.docId} className="bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center text-center group transition-all hover:shadow-md relative">
                     <button
