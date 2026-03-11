@@ -3,6 +3,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch, query, where, getDoc } from 'firebase/firestore/lite';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -30,10 +31,12 @@ const firebaseConfig = {
 };
 
 let db: any = null;
+let auth: any = null;
 if (firebaseConfig.projectId && firebaseConfig.apiKey) {
   try {
     const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
     db = getFirestore(firebaseApp);
+    auth = getAuth(firebaseApp);
     console.log('Firebase initialized successfully.');
   } catch (e) {
     console.error('Firebase init error:', e);
@@ -53,89 +56,118 @@ interface User {
   config: UserConfig;
 }
 
-const userServices = new Map<string, { bot: TelegramBot | null, chatId: string }>();
+const botInstances = new Map<string, TelegramBot>();
+const userServices = new Map<string, { bot: TelegramBot | null, chatId: string, token: string }>();
 
 async function initUserService(username: string, config: UserConfig) {
   if (!username) return;
-  // Hardcoded Telegram Bot Setup for single user
-  config.telegramBotToken = '8653230677:AAHHJj8ocnUULzj0NqAnWOQO4bQlFvKzZIE';
-  config.telegramChatId = '1611772028';
 
-  // Telegram Bot Setup
   const existingService = userServices.get(username);
-  if (existingService?.bot) {
-    try {
-      await existingService.bot.stopPolling();
-    } catch (e) {
-      console.error(`Error stopping bot polling for ${username}:`, e);
+  const oldToken = existingService?.token;
+  const newToken = config.telegramBotToken;
+
+  // We don't stop polling if the token is still used by other users
+  if (oldToken && oldToken !== newToken) {
+    let isUsedByOthers = false;
+    for (const [u, s] of userServices.entries()) {
+      if (u !== username && s.token === oldToken) {
+        isUsedByOthers = true;
+        break;
+      }
+    }
+    if (!isUsedByOthers) {
+      const oldBot = botInstances.get(oldToken);
+      if (oldBot) {
+        try {
+          await oldBot.stopPolling();
+        } catch (e) {
+          console.error(`Error stopping bot polling for old token:`, e);
+        }
+        botInstances.delete(oldToken);
+      }
     }
   }
 
   let bot = null;
-  if (config.telegramBotToken) {
+  if (newToken) {
     try {
-      // Disable polling on Vercel to prevent serverless function timeouts
-      const isVercel = !!process.env.VERCEL;
-      bot = new TelegramBot(config.telegramBotToken, { polling: !isVercel });
-      console.log(`Telegram bot initialized for ${username} (polling: ${!isVercel})`);
+      bot = botInstances.get(newToken) || null;
+      if (!bot) {
+        const isVercel = !!process.env.VERCEL;
+        bot = new TelegramBot(newToken, { polling: !isVercel });
+        console.log(`Telegram bot initialized for token (polling: ${!isVercel})`);
 
-      bot.on('polling_error', (error) => {
-        console.error(`[polling_error] ${error.code}: ${error.message}`);
-      });
+        bot.on('polling_error', (error) => {
+          console.error(`[polling_error] ${error.code}: ${error.message}`);
+        });
 
-      bot.onText(/\/check/, async (msg) => {
-        const chatId = msg.chat.id;
-        if (!db) {
-          bot?.sendMessage(chatId, 'Firebase is not configured on the server.');
-          return;
-        }
-        try {
-          const q = query(collection(db, 'channels'), where('username', '==', username), where('isLive', '==', true));
-          const querySnapshot = await getDocs(q);
-          const liveChannels: string[] = [];
-          querySnapshot.forEach((doc) => {
-            liveChannels.push(doc.data().id);
-          });
-
-          if (liveChannels.length > 0) {
-            bot?.sendMessage(chatId, `Các kênh đang live:\n${liveChannels.join('\n')}`);
-          } else {
-            bot?.sendMessage(chatId, 'Hiện tại không có kênh nào đang live.');
+        bot.onText(/\/check/, async (msg) => {
+          const chatIdStr = msg.chat.id.toString();
+          if (!db) {
+            bot?.sendMessage(msg.chat.id, 'Firebase is not configured on the server.');
+            return;
           }
-        } catch (error) {
-          console.error('Error checking live channels:', error);
-          bot?.sendMessage(chatId, 'Có lỗi xảy ra khi kiểm tra.');
-        }
-      });
-
-      bot.onText(/\/(.+)/, async (msg, match) => {
-        if (!match) return;
-        const command = match[1];
-        if (command === 'check' || command === 'start') return;
-        
-        const channelId = command;
-        const chatId = msg.chat.id;
-        
-        bot?.sendMessage(chatId, `Đang kiểm tra kênh ${channelId}...`);
-        const status = await checkTikTokLive(channelId);
-        
-        if (status.isLive) {
-          if (status.coverUrl) {
-            bot?.sendPhoto(chatId, status.coverUrl, { caption: `Kênh ${channelId} đang LIVE!` });
-          } else {
-            bot?.sendMessage(chatId, `Kênh ${channelId} đang LIVE!`);
+          
+          // Find users matching this chat ID and bot
+          const users = [];
+          for (const [u, s] of userServices.entries()) {
+            if (s.bot === bot && s.chatId === chatIdStr) {
+              users.push(u);
+            }
           }
-        } else {
-          bot?.sendMessage(chatId, `Kênh ${channelId} hiện KHÔNG live.`);
-        }
-      });
+
+          if (users.length === 0) return;
+
+          for (const u of users) {
+            try {
+              const q = query(collection(db, 'channels'), where('username', '==', u), where('isLive', '==', true));
+              const querySnapshot = await getDocs(q);
+              const liveChannels: string[] = [];
+              querySnapshot.forEach((doc) => {
+                liveChannels.push(doc.data().id);
+              });
+
+              if (liveChannels.length > 0) {
+                bot?.sendMessage(msg.chat.id, `Các kênh đang live (User: ${u}):\n${liveChannels.join('\n')}`);
+              } else {
+                bot?.sendMessage(msg.chat.id, `Hiện tại không có kênh nào đang live (User: ${u}).`);
+              }
+            } catch (error) {
+              console.error('Error checking live channels:', error);
+              bot?.sendMessage(msg.chat.id, 'Có lỗi xảy ra khi kiểm tra.');
+            }
+          }
+        });
+
+        bot.onText(/\/(.+)/, async (msg, match) => {
+          if (!match) return;
+          const command = match[1];
+          if (command === 'check' || command === 'start') return;
+          
+          const channelId = command;
+          bot?.sendMessage(msg.chat.id, `Đang kiểm tra kênh ${channelId}...`);
+          const status = await checkTikTokLive(channelId);
+          
+          if (status.isLive) {
+            if (status.coverUrl) {
+              bot?.sendPhoto(msg.chat.id, status.coverUrl, { caption: `Kênh ${channelId} đang LIVE!` });
+            } else {
+              bot?.sendMessage(msg.chat.id, `Kênh ${channelId} đang LIVE!`);
+            }
+          } else {
+            bot?.sendMessage(msg.chat.id, `Kênh ${channelId} hiện KHÔNG live.`);
+          }
+        });
+
+        botInstances.set(newToken, bot);
+      }
     } catch (e) {
-      console.error(`Telegram bot init error for ${username}:`, e);
+      console.error(`Telegram bot init error for token:`, e);
       bot = null;
     }
   }
 
-  userServices.set(username, { bot, chatId: config.telegramChatId });
+  userServices.set(username, { bot, chatId: config.telegramChatId, token: newToken });
 }
 
 async function initAllServices() {
@@ -238,10 +270,8 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       if (userDoc.exists()) {
         const userData = userDoc.data() as User;
         if (userData.config && userData.config.telegramBotToken) {
-          const isVercel = !!process.env.VERCEL;
-          const bot = new TelegramBot(userData.config.telegramBotToken, { polling: !isVercel });
-          service = { bot, chatId: userData.config.telegramChatId };
-          userServices.set(username, service);
+          await initUserService(username, userData.config);
+          service = userServices.get(username);
         }
       }
     } catch (error) {
@@ -374,15 +404,49 @@ if (!process.env.VERCEL) {
   setInterval(checkAllChannels, CHECK_INTERVAL);
 }
 
+let firebasePublicKeys: Record<string, string> = {};
+
+const fetchFirebasePublicKeys = async () => {
+  try {
+    const res = await axios.get('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com');
+    firebasePublicKeys = res.data;
+  } catch (e) {
+    console.error('Failed to fetch Firebase public keys', e);
+  }
+};
+
 // Auth Middleware
-const authenticate = (req: any, res: any, next: any) => {
+const authenticate = async (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
 
   const token = authHeader.split(' ')[1];
   try {
-    const decoded: any = jwt.verify(token, JWT_SECRET);
-    req.user = decoded;
+    const decodedHeader = jwt.decode(token, { complete: true });
+    
+    // Fallback for old custom JWT tokens
+    if (!decodedHeader || typeof decodedHeader === 'string' || !decodedHeader.header.kid) {
+      try {
+        const decoded: any = jwt.verify(token, JWT_SECRET);
+        req.user = decoded;
+        return next();
+      } catch (e) {
+        return res.status(401).json({ error: 'Invalid token' });
+      }
+    }
+
+    const kid = decodedHeader.header.kid;
+    if (!firebasePublicKeys[kid]) {
+      await fetchFirebasePublicKeys();
+    }
+    
+    const publicKey = firebasePublicKeys[kid];
+    if (!publicKey) {
+      return res.status(401).json({ error: 'Invalid token signature' });
+    }
+
+    const decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] }) as any;
+    req.user = { username: decoded.email, uid: decoded.user_id };
     next();
   } catch (e) {
     res.status(401).json({ error: 'Invalid token' });
@@ -392,51 +456,56 @@ const authenticate = (req: any, res: any, next: any) => {
 // Auth Routes
 app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
   try {
-    if (!db) return res.status(500).json({ error: 'Database not initialized' });
+    if (!db || !auth) return res.status(500).json({ error: 'Firebase not initialized' });
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    if (!username || !password) return res.status(400).json({ error: 'Email and password required' });
     
-    const userDoc = await getDoc(doc(db, 'users', username));
-    if (userDoc.exists()) return res.status(400).json({ error: 'Username already exists' });
+    // Create user in Firebase Auth
+    const userCredential = await createUserWithEmailAndPassword(auth, username, password);
+    const token = await userCredential.user.getIdToken();
 
-    const passwordHash = await bcrypt.hash(password, 10);
+    // Create user document in Firestore
     const newUser: User = {
       username,
-      passwordHash,
+      passwordHash: '', // No longer needed
       config: {
         telegramBotToken: '',
         telegramChatId: ''
       }
     };
-    
     await setDoc(doc(db, 'users', username), newUser);
 
-    const token = jwt.sign({ username }, JWT_SECRET);
     res.json({ token, username });
   } catch (error: any) {
     console.error('Registration error:', error);
-    res.status(500).json({ error: 'Registration failed', details: error.message || String(error) });
+    res.status(400).json({ error: 'Registration failed', details: error.message || String(error) });
   }
 });
 
 app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
   try {
-    if (!db) return res.status(500).json({ error: 'Database not initialized' });
+    if (!db || !auth) return res.status(500).json({ error: 'Firebase not initialized' });
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    if (!username || !password) return res.status(400).json({ error: 'Email and password required' });
     
+    // Sign in with Firebase Auth
+    const userCredential = await signInWithEmailAndPassword(auth, username, password);
+    const token = await userCredential.user.getIdToken();
+
+    // Ensure user document exists in Firestore (for backward compatibility)
     const userDoc = await getDoc(doc(db, 'users', username));
-    if (!userDoc.exists()) return res.status(400).json({ error: 'Invalid credentials' });
+    if (!userDoc.exists()) {
+      await setDoc(doc(db, 'users', username), {
+        username,
+        passwordHash: '',
+        config: { telegramBotToken: '', telegramChatId: '' }
+      });
+    }
 
-    const user = userDoc.data() as User;
-    const valid = await bcrypt.compare(password, user.passwordHash);
-    if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
-
-    const token = jwt.sign({ username }, JWT_SECRET);
     res.json({ token, username });
   } catch (error: any) {
     console.error('Login error:', error);
-    res.status(500).json({ error: 'Login failed', details: error.message || String(error) });
+    res.status(400).json({ error: 'Invalid credentials', details: error.message || String(error) });
   }
 });
 

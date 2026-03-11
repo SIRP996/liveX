@@ -112,14 +112,14 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Tên đăng nhập</label>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">Email</label>
             <input
-              type="text"
+              type="email"
               required
               value={username}
               onChange={e => setUsername(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-              placeholder="Nhập tên đăng nhập"
+              placeholder="Nhập địa chỉ email"
             />
           </div>
           <div>
