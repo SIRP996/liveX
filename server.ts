@@ -56,6 +56,10 @@ interface User {
 const userServices = new Map<string, { bot: TelegramBot | null, chatId: string }>();
 
 async function initUserService(username: string, config: UserConfig) {
+  // Hardcoded Telegram Bot Setup for single user
+  config.telegramBotToken = '8653230677:AAHHJj8ocnUULzj0NqAnWOQO4bQlFvKzZIE';
+  config.telegramChatId = '1611772028';
+
   // Telegram Bot Setup
   const existingService = userServices.get(username);
   if (existingService?.bot) {
@@ -214,8 +218,18 @@ async function checkTikTokLive(username: string) {
 // Background Worker
 const CHECK_INTERVAL = 60 * 1000;
 
+let lastCheckedDay = new Date().getDate();
+
 async function checkAllChannels() {
   if (!db) return;
+  
+  const currentDay = new Date().getDate();
+  const shouldClearLogs = currentDay !== lastCheckedDay;
+  if (shouldClearLogs) {
+    lastCheckedDay = currentDay;
+    console.log('Midnight reached, clearing daily live logs.');
+  }
+
   for (const [username, service] of userServices.entries()) {
     if (!service.bot || !service.chatId) continue;
     
@@ -228,24 +242,43 @@ async function checkAllChannels() {
       });
 
       for (const channel of channels) {
+        let sessions = channel.sessions || [];
+        let needsUpdate = false;
+        let updateData: any = {};
+
+        if (shouldClearLogs) {
+          sessions = [];
+          needsUpdate = true;
+          updateData.sessions = sessions;
+        }
+
         const status = await checkTikTokLive(channel.id);
         
         if (status.error) {
           console.log(`Skipping update for ${channel.id} due to fetch error.`);
+          if (needsUpdate) {
+            await updateDoc(doc(db, 'channels', channel.docId), updateData);
+          }
           continue;
         }
 
         if (status.isLive && !channel.isLive) {
           console.log(`${channel.id} is now LIVE for ${username}!`);
           
-          await updateDoc(doc(db, 'channels', channel.docId), {
+          sessions.push(Date.now()); // Log start time
+          
+          updateData = {
+            ...updateData,
             isLive: true,
             offlineStrikes: 0,
             lastLiveAt: new Date().toISOString(),
             coverUrl: status.coverUrl || null,
             title: status.title || '',
-            viewerCount: status.viewerCount || 0
-          });
+            viewerCount: status.viewerCount || 0,
+            sessions: sessions
+          };
+          
+          await updateDoc(doc(db, 'channels', channel.docId), updateData);
 
           const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
           
@@ -256,25 +289,37 @@ async function checkAllChannels() {
           }
         } 
         else if (status.isLive && channel.isLive) {
-          await updateDoc(doc(db, 'channels', channel.docId), {
+          updateData = {
+            ...updateData,
             viewerCount: status.viewerCount || 0,
             offlineStrikes: 0
-          });
+          };
+          await updateDoc(doc(db, 'channels', channel.docId), updateData);
         }
         else if (!status.isLive && channel.isLive) {
           const strikes = (channel.offlineStrikes || 0) + 1;
+          // Require 3 consecutive offline checks (3 minutes) before marking as offline
           if (strikes >= 3) {
             console.log(`${channel.id} is now OFFLINE for ${username}.`);
-            await updateDoc(doc(db, 'channels', channel.docId), {
+            sessions.push(Date.now()); // Log end time
+            
+            updateData = {
+              ...updateData,
               isLive: false,
               offlineStrikes: 0,
-              viewerCount: 0
-            });
+              viewerCount: 0,
+              sessions: sessions
+            };
+            await updateDoc(doc(db, 'channels', channel.docId), updateData);
           } else {
-            await updateDoc(doc(db, 'channels', channel.docId), {
+            updateData = {
+              ...updateData,
               offlineStrikes: strikes
-            });
+            };
+            await updateDoc(doc(db, 'channels', channel.docId), updateData);
           }
+        } else if (needsUpdate) {
+          await updateDoc(doc(db, 'channels', channel.docId), updateData);
         }
         
         await new Promise(resolve => setTimeout(resolve, 2000));
