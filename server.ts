@@ -3,7 +3,7 @@ import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch, query, where, getDoc } from 'firebase/firestore';
+import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch, query, where, getDoc } from 'firebase/firestore/lite';
 import dotenv from 'dotenv';
 import path from 'path';
 import jwt from 'jsonwebtoken';
@@ -12,7 +12,7 @@ import bcrypt from 'bcryptjs';
 dotenv.config();
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = parseInt(process.env.PORT || '3000', 10);
 
 app.use(express.json());
 
@@ -74,8 +74,10 @@ async function initUserService(username: string, config: UserConfig) {
   let bot = null;
   if (config.telegramBotToken) {
     try {
-      bot = new TelegramBot(config.telegramBotToken, { polling: true });
-      console.log(`Telegram bot initialized for ${username}`);
+      // Disable polling on Vercel to prevent serverless function timeouts
+      const isVercel = !!process.env.VERCEL;
+      bot = new TelegramBot(config.telegramBotToken, { polling: !isVercel });
+      console.log(`Telegram bot initialized for ${username} (polling: ${!isVercel})`);
 
       bot.on('polling_error', (error) => {
         console.error(`[polling_error] ${error.code}: ${error.message}`);
@@ -227,7 +229,26 @@ let lastCheckedDay = new Date().getDate();
 
 async function checkChannelsForUser(username: string, shouldClearLogs: boolean = false) {
   if (!db || !username) return;
-  const service = userServices.get(username);
+  let service = userServices.get(username);
+  
+  // If service is not in memory (e.g. serverless environment), fetch from DB
+  if (!service) {
+    try {
+      const userDoc = await getDoc(doc(db, 'users', username));
+      if (userDoc.exists()) {
+        const userData = userDoc.data() as User;
+        if (userData.config && userData.config.telegramBotToken) {
+          const isVercel = !!process.env.VERCEL;
+          const bot = new TelegramBot(userData.config.telegramBotToken, { polling: !isVercel });
+          service = { bot, chatId: userData.config.telegramChatId };
+          userServices.set(username, service);
+        }
+      }
+    } catch (error) {
+      console.error(`Error fetching user config for ${username}:`, error);
+    }
+  }
+
   if (!service || !service.bot || !service.chatId) return;
 
   try {
@@ -336,9 +357,16 @@ async function checkAllChannels() {
     console.log('Midnight reached, clearing daily live logs.');
   }
 
-  for (const username of userServices.keys()) {
-    if (!username) continue;
-    await checkChannelsForUser(username, shouldClearLogs);
+  try {
+    const querySnapshot = await getDocs(collection(db, 'users'));
+    const usernames = querySnapshot.docs.map(doc => doc.id);
+    
+    for (const username of usernames) {
+      if (!username) continue;
+      await checkChannelsForUser(username, shouldClearLogs);
+    }
+  } catch (error) {
+    console.error('Error fetching users in checkAllChannels:', error);
   }
 }
 
@@ -395,6 +423,7 @@ app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
   try {
     if (!db) return res.status(500).json({ error: 'Database not initialized' });
     const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
     
     const userDoc = await getDoc(doc(db, 'users', username));
     if (!userDoc.exists()) return res.status(400).json({ error: 'Invalid credentials' });
