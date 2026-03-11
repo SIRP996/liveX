@@ -232,11 +232,6 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     e.preventDefault();
     if (!newChannel.trim()) return;
     
-    if (!configStatus?.telegramBot) {
-      setError('Vui lòng cấu hình Telegram Bot trước khi thêm kênh.');
-      return;
-    }
-    
     setLoading(true);
     setError('');
     try {
@@ -317,7 +312,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 Trạng thái hệ thống
               </h2>
               <p className="text-sm text-zinc-500">
-                {!configStatus.telegramBot ? 'Vui lòng nhấn nút Cấu hình ở góc trên để thiết lập hệ thống.' : 'Hệ thống đang hoạt động bình thường.'}
+                {configStatus.firebase ? 'Hệ thống lưu trữ (Firebase) đang hoạt động bình thường.' : 'Vui lòng kiểm tra lại cấu hình Firebase.'}
               </p>
             </div>
             
@@ -372,11 +367,6 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   </div>
                 )}
 
-                {!configStatus?.telegramBot && (
-                  <p className="text-amber-600 text-sm bg-amber-50 p-2 rounded-lg border border-amber-200">
-                    ⚠️ Vui lòng cấu hình Telegram Bot ở nút "Cấu hình" góc trên bên phải trước khi thêm kênh.
-                  </p>
-                )}
                 <div className="flex gap-2">
                   <button
                     type="submit"

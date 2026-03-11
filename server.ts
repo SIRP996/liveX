@@ -133,9 +133,7 @@ async function initAllServices() {
     const querySnapshot = await getDocs(collection(db, 'users'));
     querySnapshot.forEach((docSnap) => {
       const userData = docSnap.data() as User;
-      if (userData.config) {
-        initUserService(userData.username, userData.config);
-      }
+      initUserService(userData.username, userData.config || { telegramBotToken: '', telegramChatId: '' });
     });
   } catch (error) {
     console.error('Error initializing all services:', error);
@@ -364,9 +362,9 @@ app.post(['/api/config', '/config'], authenticate, async (req: any, res: any) =>
     const newConfig = req.body;
     const username = req.user.username;
     
-    await updateDoc(doc(db, 'users', username), {
+    await setDoc(doc(db, 'users', username), {
       config: newConfig
-    });
+    }, { merge: true });
     
     await initUserService(username, newConfig);
     res.json({ success: true });
