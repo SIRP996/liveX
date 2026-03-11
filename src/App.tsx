@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -162,11 +162,22 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
 function MainApp({ username, onLogout }: { username: string, onLogout: () => void }) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [filter, setFilter] = useState<'all' | 'live' | 'off'>('all');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [sortOrder, setSortOrder] = useState<'desc' | 'asc' | 'none'>('none');
   const [newChannel, setNewChannel] = useState('');
   const [loading, setLoading] = useState(false);
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
   const [error, setError] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  const handleCopyId = (id: string, e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    navigator.clipboard.writeText(id);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
   const [isImportOpen, setIsImportOpen] = useState(false);
 
   const [checkResult, setCheckResult] = useState<{isLive: boolean, message: string, coverUrl?: string} | null>(null);
@@ -285,6 +296,16 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
       alert(err.message);
     }
   };
+
+  const processedChannels = channels
+    .filter(c => filter === 'all' ? true : filter === 'live' ? c.isLive : !c.isLive)
+    .filter(c => c.id.toLowerCase().includes(searchQuery.toLowerCase()))
+    .sort((a, b) => {
+      if (sortOrder === 'none') return 0;
+      const countA = a.viewerCount || 0;
+      const countB = b.viewerCount || 0;
+      return sortOrder === 'desc' ? countB - countA : countA - countB;
+    });
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans p-6 md:p-12">
@@ -451,14 +472,35 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 </button>
               </div>
             </div>
+
+            {/* Search and Sort Controls */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <div className="relative flex-1">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                <input
+                  type="text"
+                  placeholder="Tìm kiếm kênh..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
+                />
+              </div>
+              <button
+                onClick={() => setSortOrder(prev => prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none')}
+                className={`flex items-center justify-center gap-2 px-4 py-2 bg-white border rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${sortOrder !== 'none' ? 'border-emerald-200 text-emerald-700 bg-emerald-50' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'}`}
+              >
+                {sortOrder === 'desc' ? <ArrowDown className="w-4 h-4" /> : sortOrder === 'asc' ? <ArrowUp className="w-4 h-4" /> : <Activity className="w-4 h-4" />}
+                {sortOrder === 'desc' ? 'Lượt xem: Cao đến thấp' : sortOrder === 'asc' ? 'Lượt xem: Thấp đến cao' : 'Sắp xếp: Mặc định'}
+              </button>
+            </div>
             
-            {channels.length === 0 ? (
+            {processedChannels.length === 0 ? (
               <div className="bg-white p-12 rounded-2xl shadow-sm border border-zinc-100 text-center">
-                <p className="text-zinc-500">Chưa có kênh nào được theo dõi.</p>
+                <p className="text-zinc-500">Không tìm thấy kênh nào.</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4">
-                {channels.filter(c => filter === 'all' ? true : filter === 'live' ? c.isLive : !c.isLive).map((channel) => (
+                {processedChannels.map((channel) => (
                   <div key={channel.docId} className="bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center text-center group transition-all hover:shadow-md relative">
                     <button
                       onClick={() => handleDeleteChannel(channel.docId)}
@@ -484,25 +526,35 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                       )}
                     </div>
                     
-                    <a 
-                      href={`https://www.tiktok.com/@${channel.id}`} 
-                      target="_blank" 
-                      rel="noopener noreferrer"
-                      className="font-semibold text-zinc-900 hover:text-emerald-600 transition-colors truncate w-full"
-                      title={`@${channel.id}`}
-                    >
-                      @{channel.id}
-                    </a>
+                    <div className="flex items-center justify-center gap-1 w-full">
+                      <a 
+                        href={`https://www.tiktok.com/@${channel.id}`} 
+                        target="_blank" 
+                        rel="noopener noreferrer"
+                        className="font-semibold text-zinc-900 hover:text-emerald-600 transition-colors truncate"
+                        title={`@${channel.id}`}
+                      >
+                        @{channel.id}
+                      </a>
+                      <button
+                        onClick={(e) => handleCopyId(channel.id, e)}
+                        className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded transition-colors shrink-0"
+                        title="Copy ID"
+                      >
+                        {copiedId === channel.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                     
                     <div className="text-xs text-zinc-500 mt-1.5 w-full flex justify-center">
                       {channel.isLive ? (
-                        <div className="flex flex-col items-center gap-1">
-                          <span className="inline-flex items-center gap-1.5 text-red-600 font-medium bg-red-50 px-2.5 py-1 rounded-full border border-red-100">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse"></span>
-                            Đang LIVE
+                        <div className="inline-flex items-center divide-x divide-red-200 bg-red-50 rounded-full border border-red-100 overflow-hidden">
+                          <span className="flex items-center gap-1 text-red-600 font-medium px-2 py-1">
+                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0"></span>
+                            <span className="text-[10px] sm:text-xs whitespace-nowrap">Đang LIVE</span>
                           </span>
-                          <span className="text-zinc-500 font-medium flex items-center gap-1">
-                            <Users className="w-3 h-3" /> {channel.viewerCount?.toLocaleString() || 0}
+                          <span className="flex items-center gap-1 text-red-700 font-medium px-2 py-1 bg-red-100/50">
+                            <Users className="w-3 h-3 shrink-0" /> 
+                            <span className="text-[10px] sm:text-xs whitespace-nowrap">{channel.viewerCount?.toLocaleString() || 0}</span>
                           </span>
                         </div>
                       ) : (
