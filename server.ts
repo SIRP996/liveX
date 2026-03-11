@@ -56,6 +56,7 @@ interface User {
 const userServices = new Map<string, { bot: TelegramBot | null, chatId: string }>();
 
 async function initUserService(username: string, config: UserConfig) {
+  if (!username) return;
   // Hardcoded Telegram Bot Setup for single user
   config.telegramBotToken = '8653230677:AAHHJj8ocnUULzj0NqAnWOQO4bQlFvKzZIE';
   config.telegramChatId = '1611772028';
@@ -75,6 +76,10 @@ async function initUserService(username: string, config: UserConfig) {
     try {
       bot = new TelegramBot(config.telegramBotToken, { polling: true });
       console.log(`Telegram bot initialized for ${username}`);
+
+      bot.on('polling_error', (error) => {
+        console.error(`[polling_error] ${error.code}: ${error.message}`);
+      });
 
       bot.onText(/\/check/, async (msg) => {
         const chatId = msg.chat.id;
@@ -220,6 +225,107 @@ const CHECK_INTERVAL = 60 * 1000;
 
 let lastCheckedDay = new Date().getDate();
 
+async function checkChannelsForUser(username: string, shouldClearLogs: boolean = false) {
+  if (!db || !username) return;
+  const service = userServices.get(username);
+  if (!service || !service.bot || !service.chatId) return;
+
+  try {
+    const q = query(collection(db, 'channels'), where('username', '==', username));
+    const querySnapshot = await getDocs(q);
+    const channels: any[] = [];
+    querySnapshot.forEach((doc) => {
+      channels.push({ docId: doc.id, ...doc.data() });
+    });
+
+    for (const channel of channels) {
+      let sessions = channel.sessions || [];
+      let needsUpdate = false;
+      let updateData: any = {};
+
+      if (shouldClearLogs) {
+        sessions = [];
+        needsUpdate = true;
+        updateData.sessions = sessions;
+      }
+
+      const status = await checkTikTokLive(channel.id);
+      
+      if (status.error) {
+        console.log(`Skipping update for ${channel.id} due to fetch error.`);
+        if (needsUpdate) {
+          await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        }
+        continue;
+      }
+
+      if (status.isLive && !channel.isLive) {
+        console.log(`${channel.id} is now LIVE for ${username}!`);
+        
+        sessions.push(Date.now()); // Log start time
+        
+        updateData = {
+          ...updateData,
+          isLive: true,
+          offlineStrikes: 0,
+          lastLiveAt: new Date().toISOString(),
+          coverUrl: status.coverUrl || null,
+          title: status.title || '',
+          viewerCount: status.viewerCount || 0,
+          sessions: sessions
+        };
+        
+        await updateDoc(doc(db, 'channels', channel.docId), updateData);
+
+        const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
+        
+        if (status.coverUrl) {
+          service.bot.sendPhoto(service.chatId, status.coverUrl, { caption: message, parse_mode: 'HTML' }).catch(e => console.error(e));
+        } else {
+          service.bot.sendMessage(service.chatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
+        }
+      } 
+      else if (status.isLive && channel.isLive) {
+        updateData = {
+          ...updateData,
+          viewerCount: status.viewerCount || 0,
+          offlineStrikes: 0
+        };
+        await updateDoc(doc(db, 'channels', channel.docId), updateData);
+      }
+      else if (!status.isLive && channel.isLive) {
+        const strikes = (channel.offlineStrikes || 0) + 1;
+        // Require 3 consecutive offline checks (3 minutes) before marking as offline
+        if (strikes >= 3) {
+          console.log(`${channel.id} is now OFFLINE for ${username}.`);
+          sessions.push(Date.now()); // Log end time
+          
+          updateData = {
+            ...updateData,
+            isLive: false,
+            offlineStrikes: 0,
+            viewerCount: 0,
+            sessions: sessions
+          };
+          await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        } else {
+          updateData = {
+            ...updateData,
+            offlineStrikes: strikes
+          };
+          await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        }
+      } else if (needsUpdate) {
+        await updateDoc(doc(db, 'channels', channel.docId), updateData);
+      }
+      
+      await new Promise(resolve => setTimeout(resolve, 2000));
+    }
+  } catch (error) {
+    console.error(`Error in background worker for ${username}:`, error);
+  }
+}
+
 async function checkAllChannels() {
   if (!db) return;
   
@@ -230,103 +336,9 @@ async function checkAllChannels() {
     console.log('Midnight reached, clearing daily live logs.');
   }
 
-  for (const [username, service] of userServices.entries()) {
-    if (!service.bot || !service.chatId) continue;
-    
-    try {
-      const q = query(collection(db, 'channels'), where('username', '==', username));
-      const querySnapshot = await getDocs(q);
-      const channels: any[] = [];
-      querySnapshot.forEach((doc) => {
-        channels.push({ docId: doc.id, ...doc.data() });
-      });
-
-      for (const channel of channels) {
-        let sessions = channel.sessions || [];
-        let needsUpdate = false;
-        let updateData: any = {};
-
-        if (shouldClearLogs) {
-          sessions = [];
-          needsUpdate = true;
-          updateData.sessions = sessions;
-        }
-
-        const status = await checkTikTokLive(channel.id);
-        
-        if (status.error) {
-          console.log(`Skipping update for ${channel.id} due to fetch error.`);
-          if (needsUpdate) {
-            await updateDoc(doc(db, 'channels', channel.docId), updateData);
-          }
-          continue;
-        }
-
-        if (status.isLive && !channel.isLive) {
-          console.log(`${channel.id} is now LIVE for ${username}!`);
-          
-          sessions.push(Date.now()); // Log start time
-          
-          updateData = {
-            ...updateData,
-            isLive: true,
-            offlineStrikes: 0,
-            lastLiveAt: new Date().toISOString(),
-            coverUrl: status.coverUrl || null,
-            title: status.title || '',
-            viewerCount: status.viewerCount || 0,
-            sessions: sessions
-          };
-          
-          await updateDoc(doc(db, 'channels', channel.docId), updateData);
-
-          const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
-          
-          if (status.coverUrl) {
-            service.bot.sendPhoto(service.chatId, status.coverUrl, { caption: message, parse_mode: 'HTML' }).catch(e => console.error(e));
-          } else {
-            service.bot.sendMessage(service.chatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
-          }
-        } 
-        else if (status.isLive && channel.isLive) {
-          updateData = {
-            ...updateData,
-            viewerCount: status.viewerCount || 0,
-            offlineStrikes: 0
-          };
-          await updateDoc(doc(db, 'channels', channel.docId), updateData);
-        }
-        else if (!status.isLive && channel.isLive) {
-          const strikes = (channel.offlineStrikes || 0) + 1;
-          // Require 3 consecutive offline checks (3 minutes) before marking as offline
-          if (strikes >= 3) {
-            console.log(`${channel.id} is now OFFLINE for ${username}.`);
-            sessions.push(Date.now()); // Log end time
-            
-            updateData = {
-              ...updateData,
-              isLive: false,
-              offlineStrikes: 0,
-              viewerCount: 0,
-              sessions: sessions
-            };
-            await updateDoc(doc(db, 'channels', channel.docId), updateData);
-          } else {
-            updateData = {
-              ...updateData,
-              offlineStrikes: strikes
-            };
-            await updateDoc(doc(db, 'channels', channel.docId), updateData);
-          }
-        } else if (needsUpdate) {
-          await updateDoc(doc(db, 'channels', channel.docId), updateData);
-        }
-        
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      }
-    } catch (error) {
-      console.error(`Error in background worker for ${username}:`, error);
-    }
+  for (const username of userServices.keys()) {
+    if (!username) continue;
+    await checkChannelsForUser(username, shouldClearLogs);
   }
 }
 
@@ -449,6 +461,30 @@ app.get(['/api/check-live', '/check-live'], authenticate, async (req: any, res: 
     res.json(status);
   } catch (error) {
     res.status(500).json({ error: 'Failed to check channel' });
+  }
+});
+
+app.get(['/api/cron', '/cron'], async (req: any, res: any) => {
+  try {
+    // Run the background worker
+    await checkAllChannels();
+    res.json({ success: true, message: 'Cron job executed successfully' });
+  } catch (error: any) {
+    console.error('Cron job failed:', error);
+    res.status(500).json({ error: 'Cron job failed' });
+  }
+});
+
+app.post(['/api/channels/refresh', '/channels/refresh'], authenticate, async (req: any, res: any) => {
+  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+  try {
+    // Run the check asynchronously so we don't block the response for too long
+    // But wait for it to finish so the client gets updated data
+    await checkChannelsForUser(req.user.username, false);
+    res.json({ success: true });
+  } catch (error: any) {
+    console.error('Failed to refresh channels:', error);
+    res.status(500).json({ error: 'Failed to refresh channels' });
   }
 });
 

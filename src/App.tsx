@@ -211,6 +211,18 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     return () => clearInterval(interval);
   }, []);
 
+  const handleRefresh = async () => {
+    setLoading(true);
+    try {
+      await fetchWithAuth('/api/channels/refresh', { method: 'POST' });
+      await fetchChannels();
+    } catch (err: any) {
+      console.error('Refresh failed:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleCheckChannel = async () => {
     if (!newChannel.trim()) return;
     
@@ -431,10 +443,11 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   </button>
                 </div>
                 <button 
-                  onClick={fetchChannels}
-                  className="text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 text-sm"
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className="text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 text-sm disabled:opacity-50"
                 >
-                  <RefreshCw className="w-4 h-4" /> Làm mới
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Làm mới
                 </button>
               </div>
             </div>
