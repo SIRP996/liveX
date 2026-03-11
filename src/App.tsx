@@ -288,7 +288,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
 
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans p-6 md:p-12">
-      <div className="max-w-4xl mx-auto space-y-8">
+      <div className="max-w-[1600px] w-full mx-auto space-y-8">
         
         {/* Header */}
         <header className="flex items-center justify-between">
@@ -344,10 +344,10 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
         )}
 
         {/* Main Content */}
-        <div className="grid md:grid-cols-3 gap-8">
+        <div className="grid lg:grid-cols-4 xl:grid-cols-5 gap-8">
           
           {/* Add Channel Form */}
-          <div className="md:col-span-1 space-y-4">
+          <div className="lg:col-span-1 space-y-4">
             <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
               <h2 className="text-lg font-semibold mb-4">Thêm kênh theo dõi</h2>
               <form onSubmit={handleAddChannel} className="space-y-4">
@@ -418,10 +418,10 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
           </div>
 
           {/* Channels List */}
-          <div className="md:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="lg:col-span-3 xl:col-span-4 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <h2 className="text-lg font-semibold">Danh sách kênh ({channels.length})</h2>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-4">
                 <div className="flex bg-zinc-100 p-1 rounded-lg">
                   <button
                     onClick={() => setFilter('all')}
@@ -457,7 +457,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 <p className="text-zinc-500">Chưa có kênh nào được theo dõi.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8 gap-4">
                 {channels.filter(c => filter === 'all' ? true : filter === 'live' ? c.isLive : !c.isLive).map((channel) => (
                   <div key={channel.docId} className="bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center text-center group transition-all hover:shadow-md relative">
                     <button
