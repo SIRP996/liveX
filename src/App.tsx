@@ -77,7 +77,14 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
         body: JSON.stringify({ username, password })
       });
       
-      const data = await res.json();
+      let data;
+      const text = await res.text();
+      try {
+        data = JSON.parse(text);
+      } catch (e) {
+        throw new Error(`Server error: ${text.slice(0, 50)}...`);
+      }
+
       if (!res.ok) throw new Error(data.error || 'Authentication failed');
       
       onLogin(data.username, data.token);

@@ -351,42 +351,52 @@ const authenticate = (req: any, res: any, next: any) => {
 
 // Auth Routes
 app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
-  if (!db) return res.status(500).json({ error: 'Database not initialized' });
-  const { username, password } = req.body;
-  if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
-  
-  const userDoc = await getDoc(doc(db, 'users', username));
-  if (userDoc.exists()) return res.status(400).json({ error: 'Username already exists' });
+  try {
+    if (!db) return res.status(500).json({ error: 'Database not initialized' });
+    const { username, password } = req.body;
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
+    
+    const userDoc = await getDoc(doc(db, 'users', username));
+    if (userDoc.exists()) return res.status(400).json({ error: 'Username already exists' });
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  const newUser: User = {
-    username,
-    passwordHash,
-    config: {
-      telegramBotToken: '',
-      telegramChatId: ''
-    }
-  };
-  
-  await setDoc(doc(db, 'users', username), newUser);
+    const passwordHash = await bcrypt.hash(password, 10);
+    const newUser: User = {
+      username,
+      passwordHash,
+      config: {
+        telegramBotToken: '',
+        telegramChatId: ''
+      }
+    };
+    
+    await setDoc(doc(db, 'users', username), newUser);
 
-  const token = jwt.sign({ username }, JWT_SECRET);
-  res.json({ token, username });
+    const token = jwt.sign({ username }, JWT_SECRET);
+    res.json({ token, username });
+  } catch (error: any) {
+    console.error('Registration error:', error);
+    res.status(500).json({ error: 'Registration failed', details: error.message || String(error) });
+  }
 });
 
 app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
-  if (!db) return res.status(500).json({ error: 'Database not initialized' });
-  const { username, password } = req.body;
-  
-  const userDoc = await getDoc(doc(db, 'users', username));
-  if (!userDoc.exists()) return res.status(400).json({ error: 'Invalid credentials' });
+  try {
+    if (!db) return res.status(500).json({ error: 'Database not initialized' });
+    const { username, password } = req.body;
+    
+    const userDoc = await getDoc(doc(db, 'users', username));
+    if (!userDoc.exists()) return res.status(400).json({ error: 'Invalid credentials' });
 
-  const user = userDoc.data() as User;
-  const valid = await bcrypt.compare(password, user.passwordHash);
-  if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
+    const user = userDoc.data() as User;
+    const valid = await bcrypt.compare(password, user.passwordHash);
+    if (!valid) return res.status(400).json({ error: 'Invalid credentials' });
 
-  const token = jwt.sign({ username }, JWT_SECRET);
-  res.json({ token, username });
+    const token = jwt.sign({ username }, JWT_SECRET);
+    res.json({ token, username });
+  } catch (error: any) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: 'Login failed', details: error.message || String(error) });
+  }
 });
 
 app.get(['/api/auth/me', '/auth/me'], authenticate, (req: any, res: any) => {
@@ -571,5 +581,11 @@ async function startServer() {
 if (!process.env.VERCEL) {
   startServer();
 }
+
+// Global error handler to prevent HTML error pages
+app.use((err: any, req: any, res: any, next: any) => {
+  console.error('Unhandled Express error:', err);
+  res.status(500).json({ error: 'Internal server error', details: err.message });
+});
 
 export default app;
