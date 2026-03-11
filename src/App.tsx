@@ -489,7 +489,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
               <div className="flex items-center gap-2">
                 <div className="hidden md:flex items-center gap-1 bg-white border border-zinc-200 rounded-xl p-1">
                   <LayoutGrid className="w-4 h-4 text-zinc-400 mx-2" />
-                  {[3, 4, 5, 6, 7, 8].map(cols => (
+                  {[3, 4, 5, 6].map(cols => (
                     <button
                       key={cols}
                       onClick={() => setGridCols(cols)}
@@ -519,10 +519,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 gridCols === 3 ? 'grid-cols-2 sm:grid-cols-3' :
                 gridCols === 4 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4' :
                 gridCols === 5 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5' :
-                gridCols === 6 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6' :
-                gridCols === 7 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7' :
-                gridCols === 8 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8' :
-                'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8'
+                'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
               }`}>
                 {processedChannels.map((channel) => (
                   <div key={channel.docId} className="bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center text-center group transition-all hover:shadow-md relative">
@@ -571,14 +568,14 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                     
                     <div className="text-xs text-zinc-500 mt-1.5 w-full flex justify-center">
                       {channel.isLive ? (
-                        <div className="inline-flex items-center divide-x divide-red-200 bg-red-50 rounded-full border border-red-100 overflow-hidden">
-                          <span className="flex items-center gap-1 text-red-600 font-medium px-2 py-1">
+                        <div className="inline-flex items-center divide-x divide-red-200 bg-red-50 rounded-full border border-red-100 overflow-hidden max-w-full">
+                          <span className="flex items-center gap-1 text-red-600 font-medium px-1.5 py-0.5">
                             <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0"></span>
-                            <span className="text-[10px] sm:text-xs whitespace-nowrap">Đang LIVE</span>
+                            <span className="text-[10px] sm:text-[11px] whitespace-nowrap">LIVE</span>
                           </span>
-                          <span className="flex items-center gap-1 text-red-700 font-medium px-2 py-1 bg-red-100/50">
-                            <Users className="w-3 h-3 shrink-0" /> 
-                            <span className="text-[10px] sm:text-xs whitespace-nowrap">{channel.viewerCount?.toLocaleString() || 0}</span>
+                          <span className="flex items-center gap-1 text-red-700 font-medium px-1.5 py-0.5 bg-red-100/50 min-w-0">
+                            <Users className="w-2.5 h-2.5 shrink-0" /> 
+                            <span className="text-[10px] sm:text-[11px] truncate">{channel.viewerCount?.toLocaleString() || 0}</span>
                           </span>
                         </div>
                       ) : (
