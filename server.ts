@@ -262,6 +262,60 @@ const CHECK_INTERVAL = 60 * 1000;
 
 let lastCheckedDay = new Date().getDate();
 
+// --- CACHE SYSTEM ---
+const channelsCache = new Map<string, any[]>();
+const channelsCacheTime = new Map<string, number>();
+const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+
+let usersCache: string[] = [];
+let usersCacheTime = 0;
+const USERS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+async function getUserChannels(username: string): Promise<any[]> {
+  if (!db) return [];
+  const now = Date.now();
+  if (channelsCache.has(username) && channelsCacheTime.has(username)) {
+    if (now - channelsCacheTime.get(username)! < CACHE_TTL) {
+      return channelsCache.get(username)!;
+    }
+  }
+  
+  try {
+    const q = query(collection(db, 'channels'), where('username', '==', username));
+    const querySnapshot = await getDocs(q);
+    const channels: any[] = [];
+    querySnapshot.forEach((doc) => {
+      channels.push({ docId: doc.id, ...doc.data() });
+    });
+    
+    channelsCache.set(username, channels);
+    channelsCacheTime.set(username, now);
+    return channels;
+  } catch (error) {
+    console.error(`Error fetching channels for ${username}:`, error);
+    return channelsCache.get(username) || []; // Fallback to stale cache if error
+  }
+}
+
+async function getAllUsers(): Promise<string[]> {
+  if (!db) return [];
+  const now = Date.now();
+  if (usersCache.length > 0 && now - usersCacheTime < USERS_CACHE_TTL) {
+    return usersCache;
+  }
+  
+  try {
+    const querySnapshot = await getDocs(collection(db, 'users'));
+    usersCache = querySnapshot.docs.map(doc => doc.id);
+    usersCacheTime = now;
+    return usersCache;
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    return usersCache; // Fallback to stale
+  }
+}
+// --- END CACHE SYSTEM ---
+
 async function checkChannelsForUser(username: string, shouldClearLogs: boolean = false) {
   if (!db || !username) return;
   let service = userServices.get(username);
@@ -285,12 +339,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
   if (!service || !service.bot || !service.chatId) return;
 
   try {
-    const q = query(collection(db, 'channels'), where('username', '==', username));
-    const querySnapshot = await getDocs(q);
-    const channels: any[] = [];
-    querySnapshot.forEach((doc) => {
-      channels.push({ docId: doc.id, ...doc.data() });
-    });
+    const channels = await getUserChannels(username);
 
     const processChannel = async (channel: any) => {
       let sessions = channel.sessions || [];
@@ -309,9 +358,12 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
         console.log(`Skipping update for ${channel.id} due to fetch error.`);
         if (needsUpdate) {
           await updateDoc(doc(db, 'channels', channel.docId), updateData);
+          Object.assign(channel, updateData);
         }
         return;
       }
+
+      let didUpdate = false;
 
       if (status.isLive && !channel.isLive) {
         console.log(`${channel.id} is now LIVE for ${username}!`);
@@ -330,6 +382,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
         };
         
         await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        didUpdate = true;
 
         const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
         
@@ -346,6 +399,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
           offlineStrikes: 0
         };
         await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        didUpdate = true;
       }
       else if (!status.isLive && channel.isLive) {
         const strikes = (channel.offlineStrikes || 0) + 1;
@@ -362,15 +416,22 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
             sessions: sessions
           };
           await updateDoc(doc(db, 'channels', channel.docId), updateData);
+          didUpdate = true;
         } else {
           updateData = {
             ...updateData,
             offlineStrikes: strikes
           };
           await updateDoc(doc(db, 'channels', channel.docId), updateData);
+          didUpdate = true;
         }
       } else if (needsUpdate) {
         await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        didUpdate = true;
+      }
+
+      if (didUpdate) {
+        Object.assign(channel, updateData);
       }
     };
 
@@ -406,8 +467,7 @@ async function checkAllChannels() {
   }
 
   try {
-    const querySnapshot = await getDocs(collection(db, 'users'));
-    const usernames = querySnapshot.docs.map(doc => doc.id);
+    const usernames = await getAllUsers();
     
     for (const username of usernames) {
       if (!username) continue;
@@ -550,6 +610,12 @@ app.post(['/api/config', '/config'], authenticate, async (req: any, res: any) =>
     }, { merge: true });
     
     await initUserService(username, newConfig);
+    
+    // Add to usersCache if not present
+    if (usersCache.length > 0 && !usersCache.includes(username)) {
+      usersCache.push(username);
+    }
+    
     res.json({ success: true });
   } catch (error) {
     console.error('Failed to save config:', error);
@@ -594,6 +660,10 @@ app.get(['/api/cron', '/cron'], async (req: any, res: any) => {
 app.post(['/api/channels/refresh', '/channels/refresh'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   try {
+    // Force clear cache to fetch fresh data from DB
+    channelsCache.delete(req.user.username);
+    channelsCacheTime.delete(req.user.username);
+    
     // Run the check asynchronously so we don't block the response for too long
     // But wait for it to finish so the client gets updated data
     await checkChannelsForUser(req.user.username, false);
@@ -607,15 +677,14 @@ app.post(['/api/channels/refresh', '/channels/refresh'], authenticate, async (re
 app.get(['/api/channels', '/channels'], authenticate, async (req: any, res: any) => {
   if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   try {
-    const q = query(collection(db, 'channels'), where('username', '==', req.user.username));
-    const querySnapshot = await getDocs(q);
-    const channels: any[] = [];
-    querySnapshot.forEach((doc) => {
-      channels.push({ docId: doc.id, ...doc.data() });
-    });
+    const channels = await getUserChannels(req.user.username);
     res.json(channels);
   } catch (error: any) {
-    console.error('Failed to fetch channels:', error);
+    if (error.message?.includes('Quota exceeded')) {
+      console.error('Failed to fetch channels: Quota exceeded.');
+    } else {
+      console.error('Failed to fetch channels:', error);
+    }
     res.status(500).json({ error: 'Failed to fetch channels: ' + (error.message || error) });
   }
 });
@@ -626,10 +695,8 @@ app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any
   if (!id) return res.status(400).json({ error: 'Channel ID is required' });
   
   try {
-    const q = query(collection(db, 'channels'), where('username', '==', req.user.username), where('id', '==', id));
-    const querySnapshot = await getDocs(q);
-    
-    if (!querySnapshot.empty) {
+    const channels = await getUserChannels(req.user.username);
+    if (channels.some(c => c.id === id)) {
       return res.status(400).json({ error: 'Channel already exists' });
     }
 
@@ -640,8 +707,14 @@ app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any
       addedAt: new Date().toISOString()
     };
     
-    await setDoc(doc(collection(db, 'channels')), newChannel);
-    res.json({ success: true, channel: newChannel });
+    const newDocRef = doc(collection(db, 'channels'));
+    await setDoc(newDocRef, newChannel);
+    
+    if (channelsCache.has(req.user.username)) {
+      channelsCache.get(req.user.username)!.push({ docId: newDocRef.id, ...newChannel });
+    }
+    
+    res.json({ success: true, channel: { docId: newDocRef.id, ...newChannel } });
   } catch (error) {
     res.status(500).json({ error: 'Failed to add channel' });
   }
@@ -653,12 +726,8 @@ app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: 'Channel IDs array is required' });
   
   try {
-    const q = query(collection(db, 'channels'), where('username', '==', req.user.username));
-    const querySnapshot = await getDocs(q);
-    const existingIds = new Set();
-    querySnapshot.forEach((doc) => {
-      existingIds.add(doc.data().id);
-    });
+    const channels = await getUserChannels(req.user.username);
+    const existingIds = new Set(channels.map(c => c.id));
     
     const addedChannels = [];
     let addedCount = 0;
@@ -682,16 +751,24 @@ app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any
         };
         const newDocRef = doc(collection(db, 'channels'));
         batch.set(newDocRef, newChannel);
-        addedChannels.push(newChannel);
+        addedChannels.push({ docId: newDocRef.id, ...newChannel });
         addedCount++;
       }
       
       await batch.commit();
     }
     
+    if (channelsCache.has(req.user.username)) {
+      channelsCache.get(req.user.username)!.push(...addedChannels);
+    }
+    
     res.json({ success: true, addedCount, channels: addedChannels });
   } catch (error: any) {
-    console.error('Failed to bulk add channels:', error.message, error.stack);
+    if (error.message?.includes('Quota exceeded')) {
+      console.error('Failed to bulk add channels: Quota exceeded.');
+    } else {
+      console.error('Failed to bulk add channels:', error.message, error.stack);
+    }
     res.status(500).json({ error: 'Failed to bulk add channels: ' + error.message });
   }
 });
@@ -704,6 +781,12 @@ app.delete(['/api/channels/:docId', '/channels/:docId'], authenticate, async (re
     const docSnap = await getDoc(docRef);
     if (docSnap.exists() && docSnap.data().username === req.user.username) {
       await deleteDoc(docRef);
+      
+      if (channelsCache.has(req.user.username)) {
+        const channels = channelsCache.get(req.user.username)!;
+        channelsCache.set(req.user.username, channels.filter(c => c.docId !== docId));
+      }
+      
       res.json({ success: true });
     } else {
       res.status(403).json({ error: 'Unauthorized or not found' });

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid, AlertCircle } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -180,6 +180,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     setTimeout(() => setCopiedId(null), 2000);
   };
   const [isImportOpen, setIsImportOpen] = useState(false);
+  const [quotaExceeded, setQuotaExceeded] = useState(false);
 
   const [checkResult, setCheckResult] = useState<{isLive: boolean, message: string, coverUrl?: string} | null>(null);
 
@@ -201,8 +202,12 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
       });
       
       setChannels(data);
+      setQuotaExceeded(false);
     } catch (err: any) {
       console.error(err);
+      if (err.message?.includes('Quota exceeded')) {
+        setQuotaExceeded(true);
+      }
     }
   };
 
@@ -216,10 +221,19 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     }
   };
 
+  const quotaExceededRef = useRef(false);
+  useEffect(() => {
+    quotaExceededRef.current = quotaExceeded;
+  }, [quotaExceeded]);
+
   useEffect(() => {
     fetchConfigStatus();
     fetchChannels();
-    const interval = setInterval(fetchChannels, 30000);
+    const interval = setInterval(() => {
+      if (!quotaExceededRef.current) {
+        fetchChannels();
+      }
+    }, 30000);
     return () => clearInterval(interval);
   }, []);
 
@@ -253,7 +267,11 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
         coverUrl: data.coverUrl
       });
     } catch (err: any) {
-      setError(err.message);
+      if (err.message?.includes('Quota exceeded')) {
+        setError('Đã vượt quá hạn mức dữ liệu miễn phí trong ngày của Firebase. Vui lòng thử lại vào ngày mai.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -278,7 +296,11 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
       setNewChannel('');
       fetchChannels();
     } catch (err: any) {
-      setError(err.message);
+      if (err.message?.includes('Quota exceeded')) {
+        setError('Đã vượt quá hạn mức dữ liệu miễn phí trong ngày của Firebase. Vui lòng thử lại vào ngày mai.');
+      } else {
+        setError(err.message);
+      }
     } finally {
       setLoading(false);
     }
@@ -294,7 +316,11 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
       if (!res.ok) throw new Error('Failed to delete channel');
       fetchChannels();
     } catch (err: any) {
-      alert(err.message);
+      if (err.message?.includes('Quota exceeded')) {
+        alert('Đã vượt quá hạn mức dữ liệu miễn phí trong ngày của Firebase. Vui lòng thử lại vào ngày mai.');
+      } else {
+        alert(err.message);
+      }
     }
   };
 
@@ -312,6 +338,19 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans p-6 md:p-12">
       <div className="max-w-[1600px] w-full mx-auto space-y-8">
         
+        {quotaExceeded && (
+          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-start gap-3">
+            <AlertCircle className="w-5 h-5 shrink-0 mt-0.5" />
+            <div>
+              <h3 className="font-medium">Đã vượt quá hạn mức dữ liệu miễn phí (Quota exceeded)</h3>
+              <p className="text-sm mt-1 text-red-600">
+                Ứng dụng đang sử dụng gói Firebase miễn phí và đã đạt giới hạn đọc/ghi dữ liệu trong ngày. 
+                Hạn mức sẽ được tự động làm mới vào ngày mai. Bạn có thể xem chi tiết tại <a href="https://firebase.google.com/pricing#cloud-firestore" target="_blank" rel="noreferrer" className="underline font-medium hover:text-red-800">bảng giá Firebase</a>.
+              </p>
+            </div>
+          </div>
+        )}
+
         {/* Header */}
         <header className="flex items-center justify-between">
           <div>
@@ -775,7 +814,11 @@ function ImportModal({ onClose, onSaved }: { onClose: () => void, onSaved: () =>
       }, 2000);
     } catch (err: any) {
       setProgress('');
-      setError(err.message);
+      if (err.message?.includes('Quota exceeded')) {
+        setError('Đã vượt quá hạn mức dữ liệu miễn phí trong ngày của Firebase. Vui lòng thử lại vào ngày mai.');
+      } else {
+        setError(err.message);
+      }
       setLoading(false);
     }
   };
