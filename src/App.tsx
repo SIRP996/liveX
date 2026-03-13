@@ -169,7 +169,7 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
               setLoading(true);
               setError('');
               try {
-                const res = await fetch('/api/auth/guest', { method: 'POST' });
+                const res = await fetch('/api/auth/guest', { method: 'GET' });
                 const text = await res.text();
                 
                 if (!res.ok) {
