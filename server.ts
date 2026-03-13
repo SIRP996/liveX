@@ -27,6 +27,17 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', time: new Date().toISOString(), env: process.env.NODE_ENV });
 });
 
+app.get('/api/system/stats', (req, res) => {
+  const mem = process.memoryUsage();
+  res.json({
+    rss: Math.round(mem.rss / 1024 / 1024), // Resident Set Size
+    heapTotal: Math.round(mem.heapTotal / 1024 / 1024),
+    heapUsed: Math.round(mem.heapUsed / 1024 / 1024),
+    external: Math.round(mem.external / 1024 / 1024),
+    timestamp: new Date().toISOString()
+  });
+});
+
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-12345';
 
 // Single Firebase Initialization

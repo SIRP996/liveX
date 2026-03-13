@@ -1,7 +1,8 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid, AlertCircle, User } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid, AlertCircle, User, Cpu, Zap, Shield, Globe, BarChart3, ChevronRight } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
+import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
 
 interface Channel {
   docId: string;
@@ -41,24 +42,185 @@ const fetchWithAuth = async (url: string, options: RequestInit = {}) => {
 export default function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(!!localStorage.getItem('token'));
   const [username, setUsername] = useState(localStorage.getItem('username') || '');
+  const [showAuth, setShowAuth] = useState(false);
 
-  if (!isAuthenticated) {
-    return <AuthScreen onLogin={(user, token) => {
-      localStorage.setItem('token', token);
-      localStorage.setItem('username', user);
-      setUsername(user);
-      setIsAuthenticated(true);
+  const handleLogin = (user: string, token: string) => {
+    localStorage.setItem('token', token);
+    localStorage.setItem('username', user);
+    setUsername(user);
+    setIsAuthenticated(true);
+    setShowAuth(false);
+  };
+
+  if (isAuthenticated) {
+    return <MainApp username={username} onLogout={() => {
+      localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      setIsAuthenticated(false);
     }} />;
   }
 
-  return <MainApp username={username} onLogout={() => {
-    localStorage.removeItem('token');
-    localStorage.removeItem('username');
-    setIsAuthenticated(false);
-  }} />;
+  if (showAuth) {
+    return <AuthScreen onLogin={handleLogin} onBack={() => setShowAuth(false)} />;
+  }
+
+  return <LandingPage onGetStarted={() => setShowAuth(true)} />;
 }
 
-function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) => void }) {
+function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
+  return (
+    <div className="min-h-screen bg-white font-sans text-zinc-900 overflow-x-hidden">
+      {/* Navigation */}
+      <nav className="fixed top-0 w-full z-50 bg-white/80 backdrop-blur-md border-b border-zinc-100">
+        <div className="max-w-7xl mx-auto px-6 h-20 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <div className="w-10 h-10 bg-emerald-600 rounded-xl flex items-center justify-center">
+              <Activity className="w-6 h-6 text-white" />
+            </div>
+            <span className="text-xl font-bold tracking-tight">LiveMonitor</span>
+          </div>
+          <div className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-500">
+            <a href="#features" className="hover:text-emerald-600 transition-colors">Tính năng</a>
+            <a href="#stats" className="hover:text-emerald-600 transition-colors">Thống kê</a>
+            <a href="#contact" className="hover:text-emerald-600 transition-colors">Liên hệ</a>
+          </div>
+          <button 
+            onClick={onGetStarted}
+            className="bg-zinc-900 text-white px-6 py-2.5 rounded-full text-sm font-medium hover:bg-zinc-800 transition-all active:scale-95"
+          >
+            Bắt đầu ngay
+          </button>
+        </div>
+      </nav>
+
+      {/* Hero Section */}
+      <section className="pt-40 pb-20 px-6">
+        <div className="max-w-7xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
+          <div className="space-y-8">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-wider">
+              <Zap className="w-3 h-3" />
+              Công nghệ giám sát thời gian thực
+            </div>
+            <h1 className="text-6xl md:text-8xl font-bold leading-[0.9] tracking-tighter">
+              GIÁM SÁT <br />
+              <span className="text-emerald-600">LIVE STREAM</span> <br />
+              THÔNG MINH.
+            </h1>
+            <p className="text-xl text-zinc-500 max-w-lg leading-relaxed">
+              Hệ thống tự động theo dõi trạng thái livestream trên TikTok, thông báo tức thì qua Telegram và quản lý danh sách kênh tập trung.
+            </p>
+            <div className="flex flex-wrap gap-4">
+              <button 
+                onClick={onGetStarted}
+                className="bg-emerald-600 text-white px-8 py-4 rounded-2xl text-lg font-semibold hover:bg-emerald-700 transition-all flex items-center gap-2 group"
+              >
+                Trải nghiệm miễn phí
+                <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+              </button>
+              <div className="flex -space-x-3 items-center pl-4">
+                {[1, 2, 3, 4].map(i => (
+                  <img 
+                    key={i}
+                    src={`https://picsum.photos/seed/user${i}/100/100`} 
+                    className="w-12 h-12 rounded-full border-4 border-white object-cover"
+                    alt="User"
+                    referrerPolicy="no-referrer"
+                  />
+                ))}
+                <div className="pl-6 text-sm font-medium text-zinc-400">
+                  <span className="text-zinc-900 font-bold">500+</span> người dùng tin tưởng
+                </div>
+              </div>
+            </div>
+          </div>
+          <div className="relative">
+            <div className="absolute -inset-4 bg-emerald-100/50 rounded-[40px] blur-3xl -z-10 animate-pulse"></div>
+            <div className="bg-zinc-900 rounded-[32px] p-4 shadow-2xl border border-white/10 overflow-hidden transform rotate-2 hover:rotate-0 transition-transform duration-700">
+              <div className="bg-zinc-800/50 rounded-2xl p-6 space-y-6">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-3 h-3 rounded-full bg-red-500 animate-ping"></div>
+                    <span className="text-white font-bold">Đang giám sát 124 kênh</span>
+                  </div>
+                  <div className="px-3 py-1 rounded-lg bg-emerald-500/20 text-emerald-400 text-xs font-mono">
+                    LIVE: 42
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  {[1, 2, 3].map(i => (
+                    <div key={i} className="flex items-center justify-between p-3 bg-zinc-900/50 rounded-xl border border-white/5">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-lg bg-zinc-700 overflow-hidden">
+                          <img src={`https://picsum.photos/seed/stream${i}/100/100`} alt="Stream" referrerPolicy="no-referrer" />
+                        </div>
+                        <div>
+                          <div className="text-white text-sm font-bold">Kênh TikTok #{i}</div>
+                          <div className="text-zinc-500 text-xs">Vừa bắt đầu live</div>
+                        </div>
+                      </div>
+                      <div className="text-emerald-500">
+                        <Activity className="w-4 h-4" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Features */}
+      <section id="features" className="py-32 bg-zinc-50">
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center max-w-3xl mx-auto mb-20 space-y-4">
+            <h2 className="text-4xl md:text-5xl font-bold tracking-tight">Mọi thứ bạn cần để quản lý</h2>
+            <p className="text-zinc-500 text-lg">Hệ thống được tối ưu hóa cho hiệu suất và độ chính xác cao nhất.</p>
+          </div>
+          <div className="grid md:grid-cols-3 gap-8">
+            {[
+              { icon: <Zap className="w-8 h-8" />, title: "Tốc độ cực nhanh", desc: "Phát hiện trạng thái live chỉ trong vài giây sau khi bắt đầu." },
+              { icon: <Shield className="w-8 h-8" />, title: "Bảo mật tuyệt đối", desc: "Dữ liệu cấu hình của bạn được mã hóa và lưu trữ an toàn." },
+              { icon: <Globe className="w-8 h-8" />, title: "Đa nền tảng", desc: "Hoạt động mượt mà trên mọi thiết bị và trình duyệt." },
+              { icon: <BarChart3 className="w-8 h-8" />, title: "Thống kê chi tiết", desc: "Theo dõi lịch sử live và số lượng người xem theo thời gian." },
+              { icon: <Users className="w-8 h-8" />, title: "Quản lý tập trung", desc: "Thêm hàng trăm kênh cùng lúc qua file Excel dễ dàng." },
+              { icon: <Activity className="w-8 h-8" />, title: "Thông báo tức thì", desc: "Tích hợp Telegram Bot gửi tin nhắn ngay khi có biến động." }
+            ].map((f, i) => (
+              <div key={i} className="bg-white p-10 rounded-[32px] border border-zinc-100 hover:shadow-xl transition-all group">
+                <div className="w-16 h-16 bg-zinc-50 rounded-2xl flex items-center justify-center mb-6 group-hover:bg-emerald-600 group-hover:text-white transition-colors">
+                  {f.icon}
+                </div>
+                <h3 className="text-xl font-bold mb-4">{f.title}</h3>
+                <p className="text-zinc-500 leading-relaxed">{f.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Footer */}
+      <footer className="py-20 border-t border-zinc-100">
+        <div className="max-w-7xl mx-auto px-6 flex flex-col md:flex-row justify-between items-center gap-8">
+          <div className="flex items-center gap-2">
+            <div className="w-8 h-8 bg-zinc-900 rounded-lg flex items-center justify-center">
+              <Activity className="w-5 h-5 text-white" />
+            </div>
+            <span className="text-lg font-bold tracking-tight">LiveMonitor</span>
+          </div>
+          <div className="text-zinc-400 text-sm">
+            © 2026 LiveMonitor. All rights reserved.
+          </div>
+          <div className="flex gap-6 text-sm font-medium text-zinc-500">
+            <a href="#" className="hover:text-zinc-900">Điều khoản</a>
+            <a href="#" className="hover:text-zinc-900">Bảo mật</a>
+          </div>
+        </div>
+      </footer>
+    </div>
+  );
+}
+
+function AuthScreen({ onLogin, onBack }: { onLogin: (username: string, token: string) => void, onBack: () => void }) {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -97,7 +259,14 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
   };
 
   return (
-    <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4 font-sans">
+    <div className="min-h-screen bg-zinc-50 flex items-center justify-center p-4 font-sans relative">
+      <button 
+        onClick={onBack}
+        className="absolute top-8 left-8 flex items-center gap-2 text-zinc-500 hover:text-zinc-900 transition-colors font-medium"
+      >
+        <X className="w-5 h-5" />
+        Quay lại
+      </button>
       <div className="bg-white p-8 rounded-3xl shadow-xl w-full max-w-md border border-zinc-100">
         <div className="flex justify-center mb-6">
           <div className="w-16 h-16 bg-emerald-100 rounded-2xl flex items-center justify-center">
@@ -197,6 +366,52 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
             Tiếp tục với tư cách Khách
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function MiniRAMMonitor() {
+  const [stats, setStats] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchStats = async () => {
+      try {
+        const res = await fetch('/api/system/stats');
+        const data = await res.json();
+        setStats(prev => [...prev.slice(-9), { ...data, time: new Date().toLocaleTimeString() }]);
+      } catch (e) {
+        console.error('Failed to fetch stats', e);
+      }
+    };
+
+    fetchStats();
+    const interval = setInterval(fetchStats, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const currentMem = stats[stats.length - 1]?.rss || 0;
+
+  return (
+    <div className="flex items-center gap-3 bg-zinc-50/50 px-3 py-1.5 rounded-xl border border-zinc-100">
+      <div className="flex flex-col">
+        <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider leading-none mb-0.5">RAM</span>
+        <span className="text-xs font-bold text-emerald-600 leading-none">{currentMem}MB</span>
+      </div>
+      <div className="h-5 w-12">
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart data={stats}>
+            <Area 
+              type="monotone" 
+              dataKey="rss" 
+              stroke="#10b981" 
+              strokeWidth={1.5}
+              fill="#10b981" 
+              fillOpacity={0.1}
+              isAnimationActive={false}
+            />
+          </AreaChart>
+        </ResponsiveContainer>
       </div>
     </div>
   );
@@ -429,7 +644,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
 
         {/* Config Status */}
         {configStatus && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 flex flex-col md:flex-row gap-6 justify-between items-start md:items-center">
+          <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 flex flex-col md:flex-row gap-6 justify-between items-start md:items-center mb-8">
             <div className="space-y-1">
               <h2 className="text-lg font-semibold flex items-center gap-2">
                 <Settings className="w-5 h-5 text-zinc-400" />
@@ -440,7 +655,9 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
               </p>
             </div>
             
-            <div className="flex flex-wrap gap-4">
+            <div className="flex flex-wrap items-center gap-4">
+              <MiniRAMMonitor />
+              <div className="h-8 w-px bg-zinc-100 hidden md:block mx-2"></div>
               <StatusBadge label="Firebase" active={configStatus.firebase} />
               <StatusBadge label="Telegram Bot" active={configStatus.telegramBot} />
               <StatusBadge label="Chat ID" active={configStatus.telegramChatId} />
