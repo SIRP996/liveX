@@ -2,6 +2,7 @@ import express from 'express';
 import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
+import cors from 'cors';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
 import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch, query, where, getDoc, setLogLevel } from 'firebase/firestore/lite';
@@ -18,6 +19,7 @@ setLogLevel('silent');
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+app.use(cors());
 app.use(express.json());
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-12345';
@@ -1038,7 +1040,11 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static('dist'));
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
   }
 
   app.listen(PORT, '0.0.0.0', () => {
