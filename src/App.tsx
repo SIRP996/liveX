@@ -171,14 +171,18 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
               try {
                 const res = await fetch('/api/auth/guest', { method: 'POST' });
                 const text = await res.text();
+                
+                if (!res.ok) {
+                  throw new Error(`Server error (${res.status}): ${text.slice(0, 100)}`);
+                }
+
                 let data;
                 try {
                   data = JSON.parse(text);
                 } catch (e) {
-                  throw new Error(`Server error (non-JSON): ${text.slice(0, 100)}`);
+                  throw new Error(`Invalid JSON response (Status ${res.status}): ${text.slice(0, 100)}`);
                 }
                 
-                if (!res.ok) throw new Error(data.error || 'Guest login failed');
                 onLogin(data.username, data.token);
               } catch (err: any) {
                 setError(err.message);

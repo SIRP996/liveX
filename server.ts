@@ -22,6 +22,11 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 app.use(cors());
 app.use(express.json());
 
+// Public health check
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'ok', time: new Date().toISOString(), env: process.env.NODE_ENV });
+});
+
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-12345';
 
 // Single Firebase Initialization
@@ -740,9 +745,11 @@ app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
 });
 
 app.post(['/api/auth/guest', '/auth/guest'], async (req, res) => {
+  console.log(`Guest login request received from ${req.ip}`);
   try {
     const guestId = `guest_${Math.random().toString(36).substring(2, 9)}`;
     const token = jwt.sign({ username: guestId, isGuest: true }, JWT_SECRET, { expiresIn: '7d' });
+    console.log(`Guest session created: ${guestId}`);
     res.json({ token, username: guestId });
   } catch (error: any) {
     console.error('Guest login error:', error);
