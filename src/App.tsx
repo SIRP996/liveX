@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid, AlertCircle } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid, AlertCircle, User } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
 
@@ -12,6 +12,7 @@ interface Channel {
   coverUrl?: string;
   title?: string;
   viewerCount?: number;
+  isTemporary?: boolean;
 }
 
 interface ConfigStatus {
@@ -146,12 +147,43 @@ function AuthScreen({ onLogin }: { onLogin: (username: string, token: string) =>
           </button>
         </form>
 
-        <div className="mt-6 text-center">
+        <div className="mt-6 space-y-3">
           <button
             onClick={() => { setIsLogin(!isLogin); setError(''); }}
-            className="text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
+            className="w-full text-sm text-emerald-600 hover:text-emerald-700 font-medium transition-colors"
           >
             {isLogin ? 'Chưa có tài khoản? Đăng ký ngay' : 'Đã có tài khoản? Đăng nhập'}
+          </button>
+          
+          <div className="relative py-2">
+            <div className="absolute inset-0 flex items-center">
+              <div className="w-full border-t border-zinc-100"></div>
+            </div>
+            <div className="relative flex justify-center text-xs uppercase">
+              <span className="bg-white px-2 text-zinc-400">Hoặc</span>
+            </div>
+          </div>
+
+          <button
+            onClick={async () => {
+              setLoading(true);
+              setError('');
+              try {
+                const res = await fetch('/api/auth/guest', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Guest login failed');
+                onLogin(data.username, data.token);
+              } catch (err: any) {
+                setError(err.message);
+              } finally {
+                setLoading(false);
+              }
+            }}
+            disabled={loading}
+            className="w-full bg-white hover:bg-zinc-50 text-zinc-700 font-medium py-3 rounded-xl border border-zinc-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+          >
+            <User className="w-5 h-5" />
+            Tiếp tục với tư cách Khách
           </button>
         </div>
       </div>
@@ -171,6 +203,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
   const [error, setError] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [isTemporary, setIsTemporary] = useState(false);
 
   const handleCopyId = (id: string, e: React.MouseEvent) => {
     e.preventDefault();
@@ -287,7 +320,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
       const res = await fetchWithAuth('/api/channels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: newChannel.trim() }),
+        body: JSON.stringify({ id: newChannel.trim(), isTemporary }),
       });
       
       const data = await res.json();
@@ -447,6 +480,19 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   </div>
                 )}
 
+                <div className="flex items-center gap-2 mt-2">
+                  <input
+                    type="checkbox"
+                    id="isTemporary"
+                    checked={isTemporary}
+                    onChange={(e) => setIsTemporary(e.target.checked)}
+                    className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+                  />
+                  <label htmlFor="isTemporary" className="text-sm text-zinc-600 cursor-pointer">
+                    Thêm tạm thời (chỉ lưu trên RAM, không lưu Firebase)
+                  </label>
+                </div>
+
                 <div className="flex gap-2">
                   <button
                     type="submit"
@@ -596,6 +642,9 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                       >
                         @{channel.id}
                       </a>
+                      {channel.isTemporary && (
+                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 rounded-md shrink-0" title="Kênh tạm thời (chỉ lưu trên RAM)">Tạm</span>
+                      )}
                       <button
                         onClick={(e) => handleCopyId(channel.id, e)}
                         className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded transition-colors shrink-0"
@@ -789,6 +838,7 @@ function ImportModal({ onClose, onSaved }: { onClose: () => void, onSaved: () =>
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
   const [progress, setProgress] = useState('');
+  const [isTemporary, setIsTemporary] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleBulkAdd = async (ids: string[]) => {
@@ -801,7 +851,7 @@ function ImportModal({ onClose, onSaved }: { onClose: () => void, onSaved: () =>
       const res = await fetchWithAuth('/api/channels/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ids })
+        body: JSON.stringify({ ids, isTemporary })
       });
       
       const data = await res.json();
@@ -925,6 +975,19 @@ function ImportModal({ onClose, onSaved }: { onClose: () => void, onSaved: () =>
             >
               Google Sheets
             </button>
+          </div>
+
+          <div className="flex items-center gap-2 mb-6">
+            <input
+              type="checkbox"
+              id="isTemporaryBulk"
+              checked={isTemporary}
+              onChange={(e) => setIsTemporary(e.target.checked)}
+              className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+            />
+            <label htmlFor="isTemporaryBulk" className="text-sm text-zinc-600 cursor-pointer">
+              Thêm tạm thời (chỉ lưu trên RAM, không lưu Firebase)
+            </label>
           </div>
 
           {error && <div className="mb-4 p-3 bg-red-50 text-red-600 rounded-xl text-sm border border-red-100">{error}</div>}

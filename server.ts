@@ -4,13 +4,16 @@ import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { initializeApp, getApps, getApp } from 'firebase/app';
 import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch, query, where, getDoc } from 'firebase/firestore/lite';
+import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch, query, where, getDoc, setLogLevel } from 'firebase/firestore/lite';
 import dotenv from 'dotenv';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 
 dotenv.config();
+
+// Suppress internal Firebase SDK errors like "Quota exceeded" to avoid log spam
+setLogLevel('silent');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -265,6 +268,7 @@ let lastCheckedDay = new Date().getDate();
 // --- CACHE SYSTEM ---
 const channelsCache = new Map<string, any[]>();
 const channelsCacheTime = new Map<string, number>();
+const temporaryChannels = new Map<string, any[]>(); // RAM-only channels
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 let usersCache: string[] = [];
@@ -272,47 +276,61 @@ let usersCacheTime = 0;
 const USERS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
 
 async function getUserChannels(username: string): Promise<any[]> {
-  if (!db) return [];
+  if (!db || username.startsWith('guest_')) return temporaryChannels.get(username) || [];
   const now = Date.now();
-  if (channelsCache.has(username) && channelsCacheTime.has(username)) {
-    if (now - channelsCacheTime.get(username)! < CACHE_TTL) {
-      return channelsCache.get(username)!;
+  let firebaseChannels: any[] = [];
+  
+  if (channelsCache.has(username) && channelsCacheTime.has(username) && (now - channelsCacheTime.get(username)! < CACHE_TTL)) {
+    firebaseChannels = channelsCache.get(username)!;
+  } else {
+    try {
+      const q = query(collection(db, 'channels'), where('username', '==', username));
+      const querySnapshot = await getDocs(q);
+      const channels: any[] = [];
+      querySnapshot.forEach((doc) => {
+        channels.push({ docId: doc.id, ...doc.data() });
+      });
+      
+      channelsCache.set(username, channels);
+      channelsCacheTime.set(username, now);
+      firebaseChannels = channels;
+    } catch (error: any) {
+      if (!error.message?.includes('Quota exceeded')) {
+        console.error(`Error fetching channels for ${username}:`, error);
+      }
+      firebaseChannels = channelsCache.get(username) || []; // Fallback to stale cache if error
     }
   }
   
-  try {
-    const q = query(collection(db, 'channels'), where('username', '==', username));
-    const querySnapshot = await getDocs(q);
-    const channels: any[] = [];
-    querySnapshot.forEach((doc) => {
-      channels.push({ docId: doc.id, ...doc.data() });
-    });
-    
-    channelsCache.set(username, channels);
-    channelsCacheTime.set(username, now);
-    return channels;
-  } catch (error) {
-    console.error(`Error fetching channels for ${username}:`, error);
-    return channelsCache.get(username) || []; // Fallback to stale cache if error
-  }
+  const tempChannels = temporaryChannels.get(username) || [];
+  return [...firebaseChannels, ...tempChannels];
 }
 
 async function getAllUsers(): Promise<string[]> {
-  if (!db) return [];
+  const activeUsers = Array.from(userServices.keys());
+  if (!db) return activeUsers;
   const now = Date.now();
-  if (usersCache.length > 0 && now - usersCacheTime < USERS_CACHE_TTL) {
-    return usersCache;
-  }
   
-  try {
-    const querySnapshot = await getDocs(collection(db, 'users'));
-    usersCache = querySnapshot.docs.map(doc => doc.id);
-    usersCacheTime = now;
-    return usersCache;
-  } catch (error) {
-    console.error('Error fetching users:', error);
-    return usersCache; // Fallback to stale
+  let firebaseUsers: string[] = [];
+  if (usersCache.length > 0 && now - usersCacheTime < USERS_CACHE_TTL) {
+    firebaseUsers = usersCache;
+  } else {
+    try {
+      const querySnapshot = await getDocs(collection(db, 'users'));
+      usersCache = querySnapshot.docs.map(doc => doc.id);
+      usersCacheTime = now;
+      firebaseUsers = usersCache;
+    } catch (error: any) {
+      if (!error.message?.includes('Quota exceeded')) {
+        console.error('Error fetching users:', error);
+      }
+      firebaseUsers = usersCache; // Fallback to stale
+    }
   }
+
+  // Combine firebase users with active users (like guests)
+  const allUsers = new Set([...firebaseUsers, ...activeUsers]);
+  return Array.from(allUsers);
 }
 // --- END CACHE SYSTEM ---
 
@@ -331,8 +349,10 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
           service = userServices.get(username);
         }
       }
-    } catch (error) {
-      console.error(`Error fetching user config for ${username}:`, error);
+    } catch (error: any) {
+      if (!error.message?.includes('Quota exceeded')) {
+        console.error(`Error fetching user config for ${username}:`, error);
+      }
     }
   }
 
@@ -340,6 +360,18 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
 
   try {
     const channels = await getUserChannels(username);
+
+    const safeUpdateDoc = async (channelDocId: string, data: any) => {
+      try {
+        await updateDoc(doc(db, 'channels', channelDocId), data);
+      } catch (error: any) {
+        if (error.message?.includes('Quota exceeded')) {
+          console.warn(`Firestore quota exceeded during update for ${channelDocId}, applying to RAM only`);
+        } else {
+          throw error;
+        }
+      }
+    };
 
     const processChannel = async (channel: any) => {
       let sessions = channel.sessions || [];
@@ -357,7 +389,9 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       if (status.error) {
         console.log(`Skipping update for ${channel.id} due to fetch error.`);
         if (needsUpdate) {
-          await updateDoc(doc(db, 'channels', channel.docId), updateData);
+          if (!channel.isTemporary) {
+            await safeUpdateDoc(channel.docId, updateData);
+          }
           Object.assign(channel, updateData);
         }
         return;
@@ -381,7 +415,9 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
           sessions: sessions
         };
         
-        await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        if (!channel.isTemporary) {
+          await safeUpdateDoc(channel.docId, updateData);
+        }
         didUpdate = true;
 
         const message = `🔴 Kênh <b>${channel.id}</b> đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
@@ -398,7 +434,9 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
           viewerCount: status.viewerCount || 0,
           offlineStrikes: 0
         };
-        await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        if (!channel.isTemporary) {
+          await safeUpdateDoc(channel.docId, updateData);
+        }
         didUpdate = true;
       }
       else if (!status.isLive && channel.isLive) {
@@ -415,18 +453,24 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
             viewerCount: 0,
             sessions: sessions
           };
-          await updateDoc(doc(db, 'channels', channel.docId), updateData);
+          if (!channel.isTemporary) {
+            await safeUpdateDoc(channel.docId, updateData);
+          }
           didUpdate = true;
         } else {
           updateData = {
             ...updateData,
             offlineStrikes: strikes
           };
-          await updateDoc(doc(db, 'channels', channel.docId), updateData);
+          if (!channel.isTemporary) {
+            await safeUpdateDoc(channel.docId, updateData);
+          }
           didUpdate = true;
         }
       } else if (needsUpdate) {
-        await updateDoc(doc(db, 'channels', channel.docId), updateData);
+        if (!channel.isTemporary) {
+          await safeUpdateDoc(channel.docId, updateData);
+        }
         didUpdate = true;
       }
 
@@ -473,8 +517,10 @@ async function checkAllChannels() {
       if (!username) continue;
       await checkChannelsForUser(username, shouldClearLogs);
     }
-  } catch (error) {
-    console.error('Error fetching users in checkAllChannels:', error);
+  } catch (error: any) {
+    if (!error.message?.includes('Quota exceeded')) {
+      console.error('Error fetching users in checkAllChannels:', error);
+    }
   }
 }
 
@@ -500,9 +546,20 @@ const authenticate = async (req: any, res: any, next: any) => {
 
   const token = authHeader.split(' ')[1];
   try {
+    // Check if it's a guest token first (custom JWT)
+    try {
+      const decoded: any = jwt.verify(token, JWT_SECRET);
+      if (decoded.isGuest) {
+        req.user = decoded;
+        return next();
+      }
+    } catch (e) {
+      // Not a valid guest token, continue to Firebase check
+    }
+
     const decodedHeader = jwt.decode(token, { complete: true });
     
-    // Fallback for old custom JWT tokens
+    // Fallback for old custom JWT tokens (non-guest)
     if (!decodedHeader || typeof decodedHeader === 'string' || !decodedHeader.header.kid) {
       try {
         const decoded: any = jwt.verify(token, JWT_SECRET);
@@ -551,7 +608,15 @@ app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
         telegramChatId: ''
       }
     };
-    await setDoc(doc(db, 'users', username), newUser);
+    try {
+      await setDoc(doc(db, 'users', username), newUser);
+    } catch (firestoreError: any) {
+      if (firestoreError.message?.includes('Quota exceeded')) {
+        console.warn('Firestore quota exceeded during register, skipping user doc creation');
+      } else {
+        throw firestoreError;
+      }
+    }
 
     res.json({ token, username });
   } catch (error: any) {
@@ -571,13 +636,21 @@ app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
     const token = await userCredential.user.getIdToken();
 
     // Ensure user document exists in Firestore (for backward compatibility)
-    const userDoc = await getDoc(doc(db, 'users', username));
-    if (!userDoc.exists()) {
-      await setDoc(doc(db, 'users', username), {
-        username,
-        passwordHash: '',
-        config: { telegramBotToken: '', telegramChatId: '' }
-      });
+    try {
+      const userDoc = await getDoc(doc(db, 'users', username));
+      if (!userDoc.exists()) {
+        await setDoc(doc(db, 'users', username), {
+          username,
+          passwordHash: '',
+          config: { telegramBotToken: '', telegramChatId: '' }
+        });
+      }
+    } catch (firestoreError: any) {
+      if (firestoreError.message?.includes('Quota exceeded')) {
+        console.warn('Firestore quota exceeded during login, skipping user doc check');
+      } else {
+        throw firestoreError;
+      }
     }
 
     res.json({ token, username });
@@ -587,27 +660,64 @@ app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
   }
 });
 
+app.post(['/api/auth/guest', '/auth/guest'], async (req, res) => {
+  try {
+    const guestId = `guest_${Math.random().toString(36).substring(2, 9)}`;
+    const token = jwt.sign({ username: guestId, isGuest: true }, JWT_SECRET, { expiresIn: '7d' });
+    res.json({ token, username: guestId });
+  } catch (error: any) {
+    console.error('Guest login error:', error);
+    res.status(500).json({ error: 'Failed to create guest session' });
+  }
+});
+
 app.get(['/api/auth/me', '/auth/me'], authenticate, (req: any, res: any) => {
   res.json({ username: req.user.username });
 });
 
 // API Routes
 app.get(['/api/config', '/config'], authenticate, async (req: any, res: any) => {
+  if (req.user.isGuest) {
+    const service = userServices.get(req.user.username);
+    return res.json({
+      telegramBotToken: service?.token || '',
+      telegramChatId: service?.chatId || ''
+    });
+  }
   if (!db) return res.status(500).json({ error: 'Database not initialized' });
-  const userDoc = await getDoc(doc(db, 'users', req.user.username));
-  if (!userDoc.exists()) return res.status(404).json({ error: 'User not found' });
-  res.json(userDoc.data().config || {});
+  try {
+    const userDoc = await getDoc(doc(db, 'users', req.user.username));
+    if (!userDoc.exists()) return res.status(404).json({ error: 'User not found' });
+    res.json(userDoc.data().config || {});
+  } catch (error: any) {
+    if (error.message?.includes('Quota exceeded')) {
+      console.warn('Firestore quota exceeded during config fetch, returning empty config');
+      return res.json({});
+    }
+    console.error('Error fetching config:', error);
+    res.status(500).json({ error: 'Failed to fetch config' });
+  }
 });
 
 app.post(['/api/config', '/config'], authenticate, async (req: any, res: any) => {
-  if (!db) return res.status(500).json({ error: 'Database not initialized' });
   try {
     const newConfig = req.body;
     const username = req.user.username;
     
-    await setDoc(doc(db, 'users', username), {
-      config: newConfig
-    }, { merge: true });
+    if (!req.user.isGuest) {
+      if (!db) return res.status(500).json({ error: 'Database not initialized' });
+      try {
+        await setDoc(doc(db, 'users', username), {
+          config: newConfig
+        }, { merge: true });
+      } catch (firestoreError: any) {
+        if (firestoreError.message?.includes('Quota exceeded')) {
+          console.warn('Firestore quota exceeded during config save, applying to RAM only');
+        } else {
+          throw firestoreError;
+        }
+      }
+    }
     
     await initUserService(username, newConfig);
     
@@ -680,9 +790,7 @@ app.get(['/api/channels', '/channels'], authenticate, async (req: any, res: any)
     const channels = await getUserChannels(req.user.username);
     res.json(channels);
   } catch (error: any) {
-    if (error.message?.includes('Quota exceeded')) {
-      console.error('Failed to fetch channels: Quota exceeded.');
-    } else {
+    if (!error.message?.includes('Quota exceeded')) {
       console.error('Failed to fetch channels:', error);
     }
     res.status(500).json({ error: 'Failed to fetch channels: ' + (error.message || error) });
@@ -690,8 +798,7 @@ app.get(['/api/channels', '/channels'], authenticate, async (req: any, res: any)
 });
 
 app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
-  const { id } = req.body;
+  const { id, isTemporary } = req.body;
   if (!id) return res.status(400).json({ error: 'Channel ID is required' });
   
   try {
@@ -700,29 +807,45 @@ app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any
       return res.status(400).json({ error: 'Channel already exists' });
     }
 
+    const forceTemp = req.user.isGuest ? true : !!isTemporary;
+
     const newChannel = {
       id,
       username: req.user.username,
       isLive: false,
-      addedAt: new Date().toISOString()
+      addedAt: new Date().toISOString(),
+      isTemporary: forceTemp
     };
     
-    const newDocRef = doc(collection(db, 'channels'));
-    await setDoc(newDocRef, newChannel);
+    let docId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
-    if (channelsCache.has(req.user.username)) {
-      channelsCache.get(req.user.username)!.push({ docId: newDocRef.id, ...newChannel });
+    if (forceTemp) {
+      if (!temporaryChannels.has(req.user.username)) {
+        temporaryChannels.set(req.user.username, []);
+      }
+      temporaryChannels.get(req.user.username)!.push({ docId, ...newChannel });
+    } else {
+      if (!db) return res.status(500).json({ error: 'Firebase not configured' });
+      const newDocRef = doc(collection(db, 'channels'));
+      docId = newDocRef.id;
+      await setDoc(newDocRef, newChannel);
+      
+      if (channelsCache.has(req.user.username)) {
+        channelsCache.get(req.user.username)!.push({ docId, ...newChannel });
+      }
     }
     
-    res.json({ success: true, channel: { docId: newDocRef.id, ...newChannel } });
-  } catch (error) {
+    res.json({ success: true, channel: { docId, ...newChannel } });
+  } catch (error: any) {
+    if (error.message?.includes('Quota exceeded')) {
+      return res.status(500).json({ error: 'Hết hạn mức Firebase (Quota exceeded). Vui lòng tích chọn "Thêm tạm thời" để tiếp tục sử dụng.' });
+    }
     res.status(500).json({ error: 'Failed to add channel' });
   }
 });
 
 app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any, res: any) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
-  const { ids } = req.body;
+  const { ids, isTemporary } = req.body;
   if (!ids || !Array.isArray(ids)) return res.status(400).json({ error: 'Channel IDs array is required' });
   
   try {
@@ -732,6 +855,8 @@ app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any
     const addedChannels = [];
     let addedCount = 0;
     
+    const forceTemp = req.user.isGuest ? true : !!isTemporary;
+
     const uniqueNewIds = [...new Set(
       ids.map(id => id.trim().replace(/^@/, ''))
          .filter(id => id && !existingIds.has(id))
@@ -740,43 +865,73 @@ app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any
     const chunkSize = 400;
     for (let i = 0; i < uniqueNewIds.length; i += chunkSize) {
       const chunk = uniqueNewIds.slice(i, i + chunkSize);
-      const batch = writeBatch(db);
+      let batch: any = null;
+      if (!forceTemp) {
+        if (!db) continue;
+        batch = writeBatch(db);
+      }
       
       for (const cleanId of chunk) {
         const newChannel = {
           id: cleanId,
           username: req.user.username,
           isLive: false,
-          addedAt: new Date().toISOString()
+          addedAt: new Date().toISOString(),
+          isTemporary: forceTemp
         };
-        const newDocRef = doc(collection(db, 'channels'));
-        batch.set(newDocRef, newChannel);
-        addedChannels.push({ docId: newDocRef.id, ...newChannel });
+        
+        let docId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        
+        if (!forceTemp) {
+          const newDocRef = doc(collection(db, 'channels'));
+          docId = newDocRef.id;
+          batch.set(newDocRef, newChannel);
+        }
+        
+        addedChannels.push({ docId, ...newChannel });
         addedCount++;
       }
       
-      await batch.commit();
+      if (!forceTemp && batch) {
+        await batch.commit();
+      }
     }
     
-    if (channelsCache.has(req.user.username)) {
+    if (forceTemp) {
+      if (!temporaryChannels.has(req.user.username)) {
+        temporaryChannels.set(req.user.username, []);
+      }
+      temporaryChannels.get(req.user.username)!.push(...addedChannels);
+    } else if (channelsCache.has(req.user.username)) {
       channelsCache.get(req.user.username)!.push(...addedChannels);
     }
     
     res.json({ success: true, addedCount, channels: addedChannels });
   } catch (error: any) {
     if (error.message?.includes('Quota exceeded')) {
-      console.error('Failed to bulk add channels: Quota exceeded.');
-    } else {
       console.error('Failed to bulk add channels:', error.message, error.stack);
+      return res.status(500).json({ error: 'Hết hạn mức Firebase (Quota exceeded). Vui lòng tích chọn "Thêm tạm thời" để tiếp tục sử dụng.' });
     }
     res.status(500).json({ error: 'Failed to bulk add channels: ' + error.message });
   }
 });
 
 app.delete(['/api/channels/:docId', '/channels/:docId'], authenticate, async (req: any, res: any) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   const { docId } = req.params;
   try {
+    if (docId.startsWith('temp_')) {
+      if (temporaryChannels.has(req.user.username)) {
+        const channels = temporaryChannels.get(req.user.username)!;
+        temporaryChannels.set(req.user.username, channels.filter(c => c.docId !== docId));
+      }
+      return res.json({ success: true });
+    }
+
+    if (req.user.isGuest) {
+      return res.status(403).json({ error: 'Guest cannot delete permanent channels' });
+    }
+
+    if (!db) return res.status(500).json({ error: 'Firebase not configured' });
     const docRef = doc(db, 'channels', docId);
     const docSnap = await getDoc(docRef);
     if (docSnap.exists() && docSnap.data().username === req.user.username) {
@@ -791,7 +946,10 @@ app.delete(['/api/channels/:docId', '/channels/:docId'], authenticate, async (re
     } else {
       res.status(403).json({ error: 'Unauthorized or not found' });
     }
-  } catch (error) {
+  } catch (error: any) {
+    if (error.message?.includes('Quota exceeded')) {
+      return res.status(500).json({ error: 'Hết hạn mức Firebase (Quota exceeded). Không thể xoá kênh đã lưu.' });
+    }
     res.status(500).json({ error: 'Failed to delete channel' });
   }
 });
