@@ -191,21 +191,91 @@ if (!process.env.VERCEL) {
   setTimeout(initAllServices, 2000);
 }
 
+const userAgents = [
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:123.0) Gecko/20100101 Firefox/123.0',
+  'Mozilla/5.0 (AppleWebKit/537.36; Chrome/122.0.0.0; Mobile; rv:123.0) Gecko/20100101 Firefox/123.0'
+];
+
 // TikTok Scraper
-async function checkTikTokLive(username: string) {
+async function checkTikTokLive(username: string, retryCount = 0): Promise<any> {
+  // Sanitize username: remove spaces, special characters that shouldn't be in a TikTok handle
+  const cleanUsername = username.trim().split(' ')[0].replace(/[^a-zA-Z0-9._-]/g, '');
+  
+  if (!cleanUsername || cleanUsername.length < 2) {
+    return { isLive: false, viewerCount: 0 };
+  }
+
   try {
-    const url = `https://www.tiktok.com/@${username}/live`;
+    const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
+    const url = `https://www.tiktok.com/@${cleanUsername}/live`;
+    
     const response = await axios.get(url, {
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8',
-        'Accept-Language': 'en-US,en;q=0.5',
+        'User-Agent': randomUA,
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
+        'Accept-Encoding': 'gzip, deflate, br',
+        'Cache-Control': 'no-cache',
+        'Pragma': 'no-cache',
+        'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
+        'Sec-Ch-Ua-Mobile': '?0',
+        'Sec-Ch-Ua-Platform': '"Windows"',
+        'Sec-Fetch-Dest': 'document',
+        'Sec-Fetch-Mode': 'navigate',
+        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-User': '?1',
+        'Upgrade-Insecure-Requests': '1'
       },
-      timeout: 10000
+      timeout: 20000,
+      validateStatus: (status) => status < 500 // Don't throw on 403/404
     });
+
+    if (response.status === 403) {
+      if (retryCount < 2) {
+        // Wait longer before retry
+        const delay = (retryCount + 1) * 3000 + Math.random() * 2000;
+        await new Promise(resolve => setTimeout(resolve, delay));
+        return checkTikTokLive(cleanUsername, retryCount + 1);
+      }
+      console.warn(`TikTok 403 Forbidden for ${cleanUsername} after ${retryCount} retries.`);
+      return { isLive: false, viewerCount: 0, error: true };
+    }
+
+    if (response.status === 404) {
+      return { isLive: false, viewerCount: 0 };
+    }
     
     const $ = cheerio.load(response.data);
-    const sigiStateStr = $('#SIGI_STATE').html();
+    let sigiStateStr = $('#SIGI_STATE').html();
+    
+    // Fallback for newer TikTok structure
+    if (!sigiStateStr) {
+      const rehydrationData = $('#__UNIVERSAL_DATA_FOR_REHYDRATION__').html();
+      if (rehydrationData) {
+        try {
+          const parsed = JSON.parse(rehydrationData);
+          // Extract relevant part to match SIGI_STATE structure or handle directly
+          const liveData = parsed?.__DEFAULT_SCOPE__?.['webapp.live-detail'];
+          if (liveData) {
+            const isLive = liveData.liveRoomUserInfo?.user?.status === 2 || liveData.liveRoomUserInfo?.liveRoom?.status === 2;
+            if (isLive) {
+              const userInfo = liveData.liveRoomUserInfo;
+              return {
+                isLive: true,
+                coverUrl: userInfo?.liveRoom?.coverUrl || userInfo?.user?.avatarLarger || null,
+                title: userInfo?.liveRoom?.title || '',
+                viewerCount: userInfo?.liveRoom?.userCount || 0
+              };
+            }
+          }
+        } catch (e) {
+          console.error('Error parsing rehydration data:', e);
+        }
+      }
+    }
     
     let viewerCount = 0;
     if (sigiStateStr) {
@@ -307,8 +377,11 @@ async function getUserChannels(username: string): Promise<any[]> {
 }
 
 async function getAllUsers(): Promise<string[]> {
-  const activeUsers = Array.from(userServices.keys());
-  if (!db) return activeUsers;
+  const activeUsers = new Set([
+    ...Array.from(userServices.keys()),
+    ...Array.from(temporaryChannels.keys())
+  ]);
+  if (!db) return Array.from(activeUsers);
   const now = Date.now();
   
   let firebaseUsers: string[] = [];
@@ -356,7 +429,8 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
     }
   }
 
-  if (!service || !service.bot || !service.chatId) return;
+  // Telegram service is optional for checking, only required for notifications
+  const canNotify = service && service.bot && service.chatId;
 
   try {
     const channels = await getUserChannels(username);
@@ -374,6 +448,9 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
     };
 
     const processChannel = async (channel: any) => {
+      // Add a random delay to avoid rate limiting (2-5 seconds)
+      await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
+      
       let sessions = channel.sessions || [];
       let needsUpdate = false;
       let updateData: any = {};
@@ -479,7 +556,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       }
     };
 
-    const CONCURRENCY = 50;
+    const CONCURRENCY = 5;
     const workers = [];
     let index = 0;
     
@@ -768,7 +845,6 @@ app.get(['/api/cron', '/cron'], async (req: any, res: any) => {
 });
 
 app.post(['/api/channels/refresh', '/channels/refresh'], authenticate, async (req: any, res: any) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   try {
     // Force clear cache to fetch fresh data from DB
     channelsCache.delete(req.user.username);
@@ -785,7 +861,6 @@ app.post(['/api/channels/refresh', '/channels/refresh'], authenticate, async (re
 });
 
 app.get(['/api/channels', '/channels'], authenticate, async (req: any, res: any) => {
-  if (!db) return res.status(500).json({ error: 'Firebase not configured' });
   try {
     const channels = await getUserChannels(req.user.username);
     res.json(channels);
