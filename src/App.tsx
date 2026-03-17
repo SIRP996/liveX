@@ -556,6 +556,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
   const [error, setError] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isHelpOpen, setIsHelpOpen] = useState(false);
+  const [isEcoMode, setIsEcoMode] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isTemporary, setIsTemporary] = useState(false);
 
@@ -616,13 +617,17 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
   useEffect(() => {
     fetchConfigStatus();
     fetchChannels();
+  }, []);
+
+  useEffect(() => {
+    const scanInterval = isEcoMode ? 5 * 60 * 1000 : 30 * 1000;
     const interval = setInterval(() => {
       if (!quotaExceededRef.current) {
         fetchChannels();
       }
-    }, 30000);
+    }, scanInterval);
     return () => clearInterval(interval);
-  }, []);
+  }, [isEcoMode]);
 
   const handleRefresh = async () => {
     setLoading(true);
@@ -957,6 +962,21 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 />
               </div>
               <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsEcoMode(!isEcoMode)}
+                  className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
+                    isEcoMode 
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700 shadow-sm' 
+                      : 'bg-white border-zinc-200 text-zinc-500 hover:bg-zinc-50'
+                  }`}
+                  title={isEcoMode ? "Đang bật quét 5 phút/lần" : "Đang quét mặc định (30 giây)"}
+                >
+                  <Clock className={`w-4 h-4 ${isEcoMode ? 'animate-pulse' : ''}`} />
+                  <span>Quét 5P: {isEcoMode ? 'BẬT' : 'TẮT'}</span>
+                </button>
+
+                <div className="h-6 w-px bg-zinc-200 mx-1"></div>
+
                 <button
                   onClick={() => setSortOrder(prev => prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none')}
                   className={`flex items-center justify-center gap-2 px-4 py-2 bg-white border rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${sortOrder !== 'none' ? 'border-emerald-200 text-emerald-700 bg-emerald-50' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'}`}
