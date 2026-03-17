@@ -71,6 +71,7 @@ interface UserConfig {
   telegramBotToken: string;
   telegramChatId: string;
   proxies?: string[];
+  useSystemProxies?: boolean;
 }
 
 interface User {
@@ -82,7 +83,9 @@ interface User {
 const botInstances = new Map<string, TelegramBot>();
 const userServices = new Map<string, { bot: TelegramBot | null, chatId: string, token: string, proxies: string[], proxyIndex: number }>();
 
-const DEFAULT_PROXIES = [
+const DEFAULT_PROXIES: string[] = [];
+
+const DEAD_PROXIES = [
   'user49087:K2XeksQyBk@42.96.12.188:49087',
   'user49102:qVb3QPLprT@103.162.31.234:49102',
   'user49238:jgKjDBXQrW@103.162.31.234:49238',
@@ -96,6 +99,8 @@ async function initUserService(username: string, config: UserConfig) {
   const existingService = userServices.get(username);
   const oldToken = existingService?.token;
   const newToken = config.telegramBotToken;
+
+  // ... (rest of the function)
 
   // We don't stop polling if the token is still used by other users
   if (oldToken && oldToken !== newToken) {
@@ -198,8 +203,11 @@ async function initUserService(username: string, config: UserConfig) {
     }
   }
 
-  // Use provided proxies, or default proxies if none provided
-  const userProxies = (config.proxies && config.proxies.length > 0) ? config.proxies : DEFAULT_PROXIES;
+  // Filter out dead proxies and provided proxies
+  let userProxies = (config.proxies && config.proxies.length > 0) ? config.proxies : (config.useSystemProxies ? DEFAULT_PROXIES : []);
+  
+  // Remove known dead proxies from the list
+  userProxies = userProxies.filter(p => !DEAD_PROXIES.some(dead => p.includes(dead.split('@').pop()!)));
 
   userServices.set(username, { 
     bot, 
@@ -250,17 +258,18 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
     const url = `https://www.tiktok.com/@${cleanUsername}/live`;
     
     let agent = null;
-    if (ownerUsername) {
+    let useProxy = false;
+    
+    if (ownerUsername && retryCount < 5) {
       const service = userServices.get(ownerUsername);
       if (service && service.proxies && service.proxies.length > 0) {
+        useProxy = true;
         const proxy = service.proxies[service.proxyIndex];
         service.proxyIndex = (service.proxyIndex + 1) % service.proxies.length;
         
-        // Proxy format: user:pass@ip:port or ip:port
         try {
           const proxyUrl = proxy.includes('://') ? proxy : `http://${proxy}`;
           agent = new HttpsProxyAgent(proxyUrl);
-          // Only log on first attempt to avoid log spam during retries
           if (retryCount === 0) {
             console.log(`Using proxy for ${cleanUsername}: ${proxy.split('@').pop()}`);
           }
@@ -270,33 +279,45 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
       }
     }
 
+    if (!useProxy && retryCount < 5 && ownerUsername) {
+       // If user has no proxies but we are retrying, maybe try a different approach or just direct
+    }
+    
+    // If we've exhausted retries with proxies, try one last time with direct connection
+    if (retryCount === 5) {
+      console.log(`Exhausted proxy retries for ${cleanUsername}, trying direct connection...`);
+      agent = null;
+    }
+
     const response = await axios.get(url, {
       httpsAgent: agent,
       headers: {
         'User-Agent': randomUA,
         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
-        'Accept-Encoding': 'gzip, deflate',
+        'Accept-Encoding': 'gzip, deflate, br',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
-        'Referer': 'https://www.tiktok.com/',
+        'Referer': 'https://www.google.com/',
         'Origin': 'https://www.tiktok.com',
         'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': '"Windows"',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'same-origin',
+        'Sec-Fetch-Site': 'cross-site',
         'Sec-Fetch-User': '?1',
         'Upgrade-Insecure-Requests': '1'
       },
-      timeout: 20000,
+      timeout: 15000,
       validateStatus: (status) => status < 500
     });
 
-    if (response.status === 403) {
-      if (retryCount < 5) {
-        const delay = (retryCount + 1) * 2000 + Math.random() * 1000;
+    if (response.status === 403 || response.status === 429) {
+      const msg = `TikTok blocked request (Status ${response.status}) for ${cleanUsername}, retrying... (${retryCount + 1}/6)`;
+      console.log(msg);
+      if (retryCount < 6) {
+        const delay = (retryCount + 1) * 2000 + Math.random() * 2000;
         await new Promise(resolve => setTimeout(resolve, delay));
         return checkTikTokLive(cleanUsername, retryCount + 1, ownerUsername);
       }
@@ -316,17 +337,22 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
       if (rehydrationData) {
         try {
           const parsed = JSON.parse(rehydrationData);
-          // Extract relevant part to match SIGI_STATE structure or handle directly
-          const liveData = parsed?.__DEFAULT_SCOPE__?.['webapp.live-detail'];
+          // Try multiple possible paths for live data
+          const liveData = parsed?.__DEFAULT_SCOPE__?.['webapp.live-detail'] || 
+                           parsed?.__DEFAULT_SCOPE__?.['webapp.user-detail']?.userInfo?.liveRoom;
+          
           if (liveData) {
-            const isLive = liveData.liveRoomUserInfo?.user?.status === 2 || liveData.liveRoomUserInfo?.liveRoom?.status === 2;
+            const isLive = liveData.liveRoomUserInfo?.user?.status === 2 || 
+                           liveData.liveRoomUserInfo?.liveRoom?.status === 2 ||
+                           liveData.status === 2;
+            
             if (isLive) {
-              const userInfo = liveData.liveRoomUserInfo;
+              const userInfo = liveData.liveRoomUserInfo || liveData;
               return {
                 isLive: true,
-                coverUrl: userInfo?.liveRoom?.coverUrl || userInfo?.user?.avatarLarger || null,
-                title: userInfo?.liveRoom?.title || '',
-                viewerCount: userInfo?.liveRoom?.userCount || 0
+                coverUrl: userInfo?.liveRoom?.coverUrl || userInfo?.user?.avatarLarger || userInfo?.coverUrl || null,
+                title: userInfo?.liveRoom?.title || userInfo?.title || '',
+                viewerCount: userInfo?.liveRoom?.userCount || userInfo?.userCount || 0
               };
             }
           }
@@ -386,14 +412,15 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
     }
     
     // If it's a proxy/network error and we have retries left, try with next proxy
-    if (retryCount < 5 && (
+    if (retryCount < 6 && (
       !error.response || 
       error.response.status >= 500 || 
       error.code === 'ECONNREFUSED' || 
       error.code === 'ECONNRESET' || 
-      error.code === 'ETIMEDOUT'
+      error.code === 'ETIMEDOUT' ||
+      error.code === 'EPROTO'
     )) {
-      const msg = `Proxy/Network error for ${username} (${error.message}), retrying with next proxy... (${retryCount + 1}/5)`;
+      const msg = `Proxy/Network error for ${username} (${error.message}), retrying... (${retryCount + 1}/6)`;
       console.log(msg);
       addLog(ownerUsername || 'system', username, 'retrying', msg);
       return checkTikTokLive(username, retryCount + 1, ownerUsername);
@@ -664,6 +691,14 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
 
       if (didUpdate) {
         Object.assign(channel, updateData);
+        // Update cache if it exists
+        if (channelsCache.has(username)) {
+          const cachedChannels = channelsCache.get(username)!;
+          const index = cachedChannels.findIndex(c => c.docId === channel.docId);
+          if (index !== -1) {
+            cachedChannels[index] = { ...cachedChannels[index], ...updateData };
+          }
+        }
       }
     };
 
@@ -968,13 +1003,70 @@ app.post(['/api/channels/refresh', '/channels/refresh'], authenticate, async (re
     channelsCache.delete(req.user.username);
     channelsCacheTime.delete(req.user.username);
     
-    // Run the check asynchronously so we don't block the response for too long
-    // But wait for it to finish so the client gets updated data
-    await checkChannelsForUser(req.user.username, false);
-    res.json({ success: true });
+    // Run the check asynchronously so we don't block the response
+    // The client will get updates via the regular polling
+    checkChannelsForUser(req.user.username, true).catch(err => {
+      console.error(`Background refresh error for ${req.user.username}:`, err);
+    });
+    
+    res.json({ success: true, message: 'Đang quét lại danh sách kênh...' });
   } catch (error: any) {
     console.error('Failed to refresh channels:', error);
     res.status(500).json({ error: 'Failed to refresh channels' });
+  }
+});
+
+app.post(['/api/channels/check-one', '/channels/check-one'], authenticate, async (req: any, res: any) => {
+  const { channelId, docId } = req.body;
+  if (!channelId) return res.status(400).json({ error: 'Channel ID is required' });
+
+  try {
+    const status = await checkTikTokLive(channelId, 0, req.user.username);
+    
+    // Update Firestore if not temporary
+    if (docId && !docId.startsWith('temp_')) {
+      const updateData: any = {
+        isLive: status.isLive,
+        viewerCount: status.viewerCount || 0,
+        lastCheckedAt: new Date().toISOString()
+      };
+      if (status.isLive) {
+        updateData.lastLiveAt = new Date().toISOString();
+      }
+      if (status.coverUrl) {
+        updateData.coverUrl = status.coverUrl;
+      }
+      
+      await updateDoc(doc(db, 'channels', docId), updateData);
+      
+      // Update cache
+      if (channelsCache.has(req.user.username)) {
+        const cached = channelsCache.get(req.user.username)!;
+        const idx = cached.findIndex(c => c.docId === docId);
+        if (idx !== -1) {
+          cached[idx] = { ...cached[idx], ...updateData };
+        }
+      }
+    } else if (docId && docId.startsWith('temp_')) {
+      // Update temporary channels
+      const temp = temporaryChannels.get(req.user.username) || [];
+      const idx = temp.findIndex(c => c.docId === docId);
+      if (idx !== -1) {
+        temp[idx] = { 
+          ...temp[idx], 
+          isLive: status.isLive, 
+          viewerCount: status.viewerCount || 0,
+          lastCheckedAt: new Date().toISOString()
+        };
+        if (status.isLive) temp[idx].lastLiveAt = new Date().toISOString();
+        if (status.coverUrl) temp[idx].coverUrl = status.coverUrl;
+      }
+    }
+
+    res.json({ success: true, status });
+  } catch (error: any) {
+    console.error('Failed to check individual channel:', error);
+    res.status(500).json({ error: 'Failed to check channel' });
   }
 });
 

@@ -567,6 +567,30 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     setCopiedId(id);
     setTimeout(() => setCopiedId(null), 2000);
   };
+
+  const [checkingId, setCheckingId] = useState<string | null>(null);
+
+  const handleCheckNow = async (channelId: string, docId: string) => {
+    setCheckingId(docId);
+    try {
+      const res = await fetchWithAuth('/api/channels/check-one', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ channelId, docId })
+      });
+      if (res.ok) {
+        fetchChannels();
+      } else {
+        const data = await res.json();
+        alert(`Lỗi: ${data.error || 'Không thể kiểm tra kênh'}`);
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Lỗi kết nối server');
+    } finally {
+      setCheckingId(null);
+    }
+  };
   const [isImportOpen, setIsImportOpen] = useState(false);
   const [quotaExceeded, setQuotaExceeded] = useState(false);
 
@@ -988,8 +1012,24 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
             </div>
             
             {processedChannels.length === 0 ? (
-              <div className="bg-white p-12 rounded-2xl shadow-sm border border-zinc-100 text-center">
-                <p className="text-zinc-500">Không tìm thấy kênh nào.</p>
+              <div className="bg-white p-16 rounded-[32px] shadow-sm border border-zinc-100 text-center flex flex-col items-center justify-center">
+                <div className="w-20 h-20 bg-zinc-50 rounded-full flex items-center justify-center mb-6">
+                  <Search className="w-10 h-10 text-zinc-300" />
+                </div>
+                <p className="text-xl font-bold text-zinc-900">Không tìm thấy kênh nào</p>
+                <p className="text-zinc-500 mt-2 max-w-xs mx-auto">
+                  {filter === 'live' 
+                    ? 'Hiện không có kênh nào đang livestream. Hãy thử chọn "Tất cả" hoặc "Offline".' 
+                    : 'Hãy thử thay đổi từ khóa tìm kiếm hoặc bộ lọc.'}
+                </p>
+                {filter === 'live' && (
+                  <button 
+                    onClick={() => setFilter('all')}
+                    className="mt-8 px-8 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-lg shadow-zinc-900/10 active:scale-95"
+                  >
+                    Xem tất cả kênh
+                  </button>
+                )}
               </div>
             ) : (
               <div className={`grid gap-4 ${
@@ -1000,13 +1040,23 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
               }`}>
                 {processedChannels.map((channel) => (
                   <div key={channel.docId} className="bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center text-center group transition-all hover:shadow-md relative">
-                    <button
-                      onClick={() => handleDeleteChannel(channel.docId)}
-                      className="absolute top-2 right-2 p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors opacity-0 md:group-hover:opacity-100"
-                      title="Xóa kênh"
-                    >
-                      <Trash2 className="w-4 h-4" />
-                    </button>
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity">
+                      <button
+                        onClick={() => handleCheckNow(channel.id, channel.docId)}
+                        disabled={checkingId === channel.docId}
+                        className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Kiểm tra ngay"
+                      >
+                        <RefreshCw className={`w-4 h-4 ${checkingId === channel.docId ? 'animate-spin' : ''}`} />
+                      </button>
+                      <button
+                        onClick={() => handleDeleteChannel(channel.docId)}
+                        className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                        title="Xóa kênh"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </div>
                     
                     <div className="relative mb-3">
                       {channel.coverUrl ? (
@@ -1203,7 +1253,8 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
   const [config, setConfig] = useState({
     telegramBotToken: '',
     telegramChatId: '',
-    proxies: ''
+    proxies: '',
+    useSystemProxies: false
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -1225,7 +1276,11 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
-    setConfig({ ...config, [e.target.name]: e.target.value });
+    const { name, value, type } = e.target as any;
+    setConfig({ 
+      ...config, 
+      [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value 
+    });
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -1287,9 +1342,28 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
             <div className="space-y-4">
               <div className="flex items-center justify-between border-b pb-2">
                 <h3 className="text-lg font-semibold text-emerald-600">Proxy Configuration</h3>
-                <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
-                  {config.proxies.split('\n').filter(p => p.trim()).length} proxies
-                </span>
+                <div className="flex items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => setConfig({ ...config, proxies: '' })}
+                    className="text-xs font-medium text-red-600 hover:text-red-700 hover:bg-red-50 px-2 py-1 rounded-lg transition-colors border border-red-100"
+                  >
+                    Xoá toàn bộ Proxy
+                  </button>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      name="useSystemProxies"
+                      checked={config.useSystemProxies}
+                      onChange={handleChange}
+                      className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+                    />
+                    <span className="text-sm font-medium text-zinc-600">Sử dụng Proxy hệ thống</span>
+                  </label>
+                  <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                    {config.proxies.split('\n').filter(p => p.trim()).length} proxies
+                  </span>
+                </div>
               </div>
               <div className="space-y-2">
                 <label className="block text-sm font-medium text-zinc-700">
@@ -1311,24 +1385,40 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
           </form>
         </div>
 
-        <div className="p-6 border-t border-zinc-100 bg-zinc-50 flex justify-end gap-3">
-          <button 
-            type="button" 
-            onClick={onClose}
-            className="px-4 py-2 text-zinc-600 font-medium hover:bg-zinc-200 rounded-xl transition-colors"
-          >
-            Hủy
-          </button>
-          <button 
-            type="submit" 
-            form="config-form"
-            disabled={saving}
-            className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2 rounded-xl font-medium transition-colors disabled:opacity-50"
-          >
-            {saving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-            Lưu cấu hình
-          </button>
-        </div>
+          <div className="flex items-center gap-3">
+            <button 
+              type="button"
+              onClick={() => {
+                if (confirm('Bạn có chắc chắn muốn khôi phục cấu hình mặc định? Toàn bộ Proxy sẽ bị xóa.')) {
+                  setConfig({
+                    telegramBotToken: '',
+                    telegramChatId: '',
+                    proxies: '',
+                    useSystemProxies: false
+                  });
+                }
+              }}
+              className="px-4 py-2 text-red-600 font-medium hover:bg-red-50 rounded-xl transition-colors border border-red-100"
+            >
+              Khôi phục mặc định
+            </button>
+            <button 
+              type="button" 
+              onClick={onClose}
+              className="px-4 py-2 text-zinc-600 font-medium hover:bg-zinc-200 rounded-xl transition-colors"
+            >
+              Hủy
+            </button>
+            <button 
+              type="submit" 
+              form="config-form"
+              disabled={saving}
+              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2 rounded-xl font-medium transition-colors disabled:opacity-50"
+            >
+              {saving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+              Lưu cấu hình
+            </button>
+          </div>
       </div>
     </div>
   );
