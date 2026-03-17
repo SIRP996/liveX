@@ -948,7 +948,8 @@ function StatusBadge({ label, active }: { label: string; active: boolean }) {
 function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () => void }) {
   const [config, setConfig] = useState({
     telegramBotToken: '',
-    telegramChatId: ''
+    telegramChatId: '',
+    proxies: ''
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -957,7 +958,10 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
     fetchWithAuth('/api/config')
       .then(res => res.json())
       .then(data => {
-        setConfig(data);
+        setConfig({
+          ...data,
+          proxies: data.proxies ? data.proxies.join('\n') : ''
+        });
         setLoading(false);
       })
       .catch(err => {
@@ -966,7 +970,7 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
       });
   }, []);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     setConfig({ ...config, [e.target.name]: e.target.value });
   };
 
@@ -974,10 +978,18 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
     e.preventDefault();
     setSaving(true);
     try {
+      const proxyList = config.proxies
+        .split('\n')
+        .map(p => p.trim())
+        .filter(p => p && (p.includes(':') || p.includes('@')));
+
       const res = await fetchWithAuth('/api/config', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(config)
+        body: JSON.stringify({
+          ...config,
+          proxies: proxyList
+        })
       });
       if (res.ok) {
         onSaved();
@@ -1015,6 +1027,30 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
               <div className="grid md:grid-cols-2 gap-4">
                 <InputField label="Bot Token" name="telegramBotToken" value={config.telegramBotToken} onChange={handleChange} />
                 <InputField label="Chat ID" name="telegramChatId" value={config.telegramChatId} onChange={handleChange} />
+              </div>
+            </div>
+
+            <div className="space-y-4">
+              <div className="flex items-center justify-between border-b pb-2">
+                <h3 className="text-lg font-semibold text-emerald-600">Proxy Configuration</h3>
+                <span className="text-xs font-medium bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+                  {config.proxies.split('\n').filter(p => p.trim()).length} proxies
+                </span>
+              </div>
+              <div className="space-y-2">
+                <label className="block text-sm font-medium text-zinc-700">
+                  Danh sách Proxy (Định dạng: <code className="text-emerald-600">user:pass@ip:port</code> hoặc <code className="text-emerald-600">ip:port</code>)
+                </label>
+                <textarea
+                  name="proxies"
+                  value={config.proxies}
+                  onChange={handleChange}
+                  placeholder="proxymart50217:wLxZDWVM@160.250.54.6:50217&#10;proxymart49036:IAyYYtFh@160.250.54.4:49036"
+                  className="w-full h-48 px-4 py-3 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all font-mono text-sm"
+                />
+                <p className="text-xs text-zinc-500 italic">
+                  * Hệ thống sẽ tự động xoay vòng (rotate) proxy cho mỗi lần quét để tránh bị TikTok chặn.
+                </p>
               </div>
             </div>
 

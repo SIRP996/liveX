@@ -10,6 +10,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import { HttpsProxyAgent } from 'https-proxy-agent';
 
 dotenv.config();
 
@@ -69,6 +70,7 @@ if (firebaseConfig.projectId && firebaseConfig.apiKey) {
 interface UserConfig {
   telegramBotToken: string;
   telegramChatId: string;
+  proxies?: string[];
 }
 
 interface User {
@@ -78,7 +80,15 @@ interface User {
 }
 
 const botInstances = new Map<string, TelegramBot>();
-const userServices = new Map<string, { bot: TelegramBot | null, chatId: string, token: string }>();
+const userServices = new Map<string, { bot: TelegramBot | null, chatId: string, token: string, proxies: string[], proxyIndex: number }>();
+
+const DEFAULT_PROXIES = [
+  'user49087:K2XeksQyBk@42.96.12.188:49087',
+  'user49102:qVb3QPLprT@103.162.31.234:49102',
+  'user49238:jgKjDBXQrW@103.162.31.234:49238',
+  'user49431:uQsr37nOBF@103.162.31.100:49431',
+  'user49360:Wz0jUHs61H@103.162.31.234:49360'
+];
 
 async function initUserService(username: string, config: UserConfig) {
   if (!username) return;
@@ -167,7 +177,7 @@ async function initUserService(username: string, config: UserConfig) {
           
           const channelId = command;
           bot?.sendMessage(msg.chat.id, `Đang kiểm tra kênh ${channelId}...`);
-          const status = await checkTikTokLive(channelId);
+          const status = await checkTikTokLive(channelId, 0, username);
           
           if (status.isLive) {
             if (status.coverUrl) {
@@ -188,7 +198,16 @@ async function initUserService(username: string, config: UserConfig) {
     }
   }
 
-  userServices.set(username, { bot, chatId: config.telegramChatId, token: newToken });
+  // Use provided proxies, or default proxies if none provided
+  const userProxies = (config.proxies && config.proxies.length > 0) ? config.proxies : DEFAULT_PROXIES;
+
+  userServices.set(username, { 
+    bot, 
+    chatId: config.telegramChatId, 
+    token: newToken, 
+    proxies: userProxies, 
+    proxyIndex: 0 
+  });
 }
 
 async function initAllServices() {
@@ -218,7 +237,7 @@ const userAgents = [
 ];
 
 // TikTok Scraper
-async function checkTikTokLive(username: string, retryCount = 0): Promise<any> {
+async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?: string): Promise<any> {
   // Sanitize username: remove spaces, special characters that shouldn't be in a TikTok handle
   const cleanUsername = username.trim().split(' ')[0].replace(/[^a-zA-Z0-9._-]/g, '');
   
@@ -230,35 +249,57 @@ async function checkTikTokLive(username: string, retryCount = 0): Promise<any> {
     const randomUA = userAgents[Math.floor(Math.random() * userAgents.length)];
     const url = `https://www.tiktok.com/@${cleanUsername}/live`;
     
+    let agent = null;
+    if (ownerUsername) {
+      const service = userServices.get(ownerUsername);
+      if (service && service.proxies && service.proxies.length > 0) {
+        const proxy = service.proxies[service.proxyIndex];
+        service.proxyIndex = (service.proxyIndex + 1) % service.proxies.length;
+        
+        // Proxy format: user:pass@ip:port or ip:port
+        try {
+          const proxyUrl = proxy.includes('://') ? proxy : `http://${proxy}`;
+          agent = new HttpsProxyAgent(proxyUrl);
+          // Only log on first attempt to avoid log spam during retries
+          if (retryCount === 0) {
+            console.log(`Using proxy for ${cleanUsername}: ${proxy.split('@').pop()}`);
+          }
+        } catch (e) {
+          console.error('Invalid proxy format:', proxy);
+        }
+      }
+    }
+
     const response = await axios.get(url, {
+      httpsAgent: agent,
       headers: {
         'User-Agent': randomUA,
-        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
         'Accept-Language': 'en-US,en;q=0.9,vi;q=0.8',
-        'Accept-Encoding': 'gzip, deflate, br',
+        'Accept-Encoding': 'gzip, deflate',
         'Cache-Control': 'no-cache',
         'Pragma': 'no-cache',
+        'Referer': 'https://www.tiktok.com/',
+        'Origin': 'https://www.tiktok.com',
         'Sec-Ch-Ua': '"Chromium";v="122", "Not(A:Brand";v="24", "Google Chrome";v="122"',
         'Sec-Ch-Ua-Mobile': '?0',
         'Sec-Ch-Ua-Platform': '"Windows"',
         'Sec-Fetch-Dest': 'document',
         'Sec-Fetch-Mode': 'navigate',
-        'Sec-Fetch-Site': 'none',
+        'Sec-Fetch-Site': 'same-origin',
         'Sec-Fetch-User': '?1',
         'Upgrade-Insecure-Requests': '1'
       },
       timeout: 20000,
-      validateStatus: (status) => status < 500 // Don't throw on 403/404
+      validateStatus: (status) => status < 500
     });
 
     if (response.status === 403) {
-      if (retryCount < 2) {
-        // Wait longer before retry
-        const delay = (retryCount + 1) * 3000 + Math.random() * 2000;
+      if (retryCount < 5) {
+        const delay = (retryCount + 1) * 2000 + Math.random() * 1000;
         await new Promise(resolve => setTimeout(resolve, delay));
-        return checkTikTokLive(cleanUsername, retryCount + 1);
+        return checkTikTokLive(cleanUsername, retryCount + 1, ownerUsername);
       }
-      console.warn(`TikTok 403 Forbidden for ${cleanUsername} after ${retryCount} retries.`);
       return { isLive: false, viewerCount: 0, error: true };
     }
 
@@ -343,6 +384,19 @@ async function checkTikTokLive(username: string, retryCount = 0): Promise<any> {
     if (error.response && error.response.status === 404) {
       return { isLive: false, viewerCount: 0 };
     }
+    
+    // If it's a proxy/network error and we have retries left, try with next proxy
+    if (retryCount < 5 && (
+      !error.response || 
+      error.response.status >= 500 || 
+      error.code === 'ECONNREFUSED' || 
+      error.code === 'ECONNRESET' || 
+      error.code === 'ETIMEDOUT'
+    )) {
+      console.log(`Proxy/Network error for ${username} (${error.message}), retrying with next proxy... (${retryCount + 1}/5)`);
+      return checkTikTokLive(username, retryCount + 1, ownerUsername);
+    }
+
     console.error(`Error checking TikTok for ${username}:`, error.message);
     return { isLive: false, viewerCount: 0, error: true };
   }
@@ -479,7 +533,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
         updateData.sessions = sessions;
       }
 
-      const status = await checkTikTokLive(channel.id);
+      const status = await checkTikTokLive(channel.id, 0, username);
       
       if (status.error) {
         console.log(`Skipping update for ${channel.id} due to fetch error.`);
@@ -846,7 +900,7 @@ app.get(['/api/check-live', '/check-live'], authenticate, async (req: any, res: 
   }
   
   try {
-    const status = await checkTikTokLive(id);
+    const status = await checkTikTokLive(id, 0, req.user.username);
     res.json(status);
   } catch (error) {
     res.status(500).json({ error: 'Failed to check channel' });
