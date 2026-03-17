@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid, AlertCircle, User, Cpu, Zap, Shield, Globe, BarChart3, ChevronRight } from 'lucide-react';
+import { Plus, Trash2, Activity, Settings, CheckCircle, XCircle, RefreshCw, X, Save, Upload, FileSpreadsheet, Users, LogIn, UserPlus, LogOut, Search, ArrowDown, ArrowUp, Copy, Check, LayoutGrid, AlertCircle, User, Cpu, Zap, Shield, Globe, BarChart3, ChevronRight, HelpCircle, Clock } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import * as XLSX from 'xlsx';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area } from 'recharts';
@@ -81,8 +81,8 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
           </div>
           <div className="hidden md:flex items-center gap-8 text-sm font-medium text-zinc-500">
             <a href="#features" className="hover:text-emerald-600 transition-colors">Tính năng</a>
+            <a href="#how-it-works" className="hover:text-emerald-600 transition-colors">Hướng dẫn</a>
             <a href="#stats" className="hover:text-emerald-600 transition-colors">Thống kê</a>
-            <a href="#contact" className="hover:text-emerald-600 transition-colors">Liên hệ</a>
           </div>
           <button 
             onClick={onGetStarted}
@@ -166,6 +166,68 @@ function LandingPage({ onGetStarted }: { onGetStarted: () => void }) {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      </section>
+
+      {/* How it works section - Enhanced visuals */}
+      <section id="how-it-works" className="py-32 bg-white relative overflow-hidden">
+        <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full -z-10 opacity-[0.03]">
+          <div className="absolute top-0 left-0 w-full h-full" style={{ backgroundImage: 'radial-gradient(#10b981 1px, transparent 1px)', backgroundSize: '40px 40px' }}></div>
+        </div>
+        
+        <div className="max-w-7xl mx-auto px-6">
+          <div className="text-center max-w-3xl mx-auto mb-24 space-y-4">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-bold uppercase tracking-widest">
+              Quy trình đơn giản
+            </div>
+            <h2 className="text-4xl md:text-6xl font-black tracking-tighter">3 BƯỚC ĐỂ BẮT ĐẦU</h2>
+            <p className="text-zinc-500 text-lg">Thiết lập hệ thống giám sát của bạn chỉ trong chưa đầy 1 phút.</p>
+          </div>
+
+          <div className="grid md:grid-cols-3 gap-8 relative">
+            {/* Connector Line (Desktop) */}
+            <div className="hidden md:block absolute top-1/2 left-0 w-full h-0.5 bg-zinc-100 -translate-y-1/2 -z-10"></div>
+            
+            {[
+              {
+                step: "01",
+                title: "Nhập danh sách",
+                desc: "Tải lên file Excel hoặc dán link Google Sheets chứa danh sách TikTok ID cần theo dõi.",
+                icon: <FileSpreadsheet className="w-10 h-10 text-emerald-600" />,
+                color: "bg-emerald-50",
+                borderColor: "border-emerald-100"
+              },
+              {
+                step: "02",
+                title: "Thêm tạm thời",
+                desc: "Sử dụng chế độ 'Tạm thời' để quét nhanh mà không cần lưu trữ vĩnh viễn vào cơ sở dữ liệu.",
+                icon: <Clock className="w-10 h-10 text-blue-600" />,
+                color: "bg-blue-50",
+                borderColor: "border-blue-100"
+              },
+              {
+                step: "03",
+                title: "Cập nhật Live",
+                desc: "Hệ thống tự động quét và thông báo qua Telegram ngay khi kênh bắt đầu livestream.",
+                icon: <Zap className="w-10 h-10 text-amber-600" />,
+                color: "bg-amber-50",
+                borderColor: "border-amber-100"
+              }
+            ].map((item, idx) => (
+              <div key={idx} className="relative group">
+                <div className="bg-white p-10 rounded-[48px] border border-zinc-100 shadow-sm hover:shadow-2xl transition-all duration-500 hover:-translate-y-2 flex flex-col items-center text-center">
+                  <div className={`w-24 h-24 ${item.color} rounded-[32px] flex items-center justify-center mb-8 group-hover:rotate-6 transition-transform duration-500 border-4 border-white shadow-lg`}>
+                    {item.icon}
+                  </div>
+                  <div className="absolute -top-4 left-1/2 -translate-x-1/2 bg-zinc-900 text-white w-10 h-10 rounded-full flex items-center justify-center font-black text-sm border-4 border-white shadow-md">
+                    {item.step}
+                  </div>
+                  <h3 className="text-2xl font-bold mb-4">{item.title}</h3>
+                  <p className="text-zinc-500 leading-relaxed text-sm">{item.desc}</p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       </section>
@@ -493,6 +555,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
   const [configStatus, setConfigStatus] = useState<ConfigStatus | null>(null);
   const [error, setError] = useState('');
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isHelpOpen, setIsHelpOpen] = useState(false);
   const [copiedId, setCopiedId] = useState<string | null>(null);
   const [isTemporary, setIsTemporary] = useState(false);
 
@@ -691,6 +754,13 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
           </div>
           <div className="flex items-center gap-3">
             <button 
+              onClick={() => setIsHelpOpen(true)}
+              className="p-2 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-xl transition-all"
+              title="Hướng dẫn"
+            >
+              <HelpCircle className="w-5 h-5" />
+            </button>
+            <button 
               onClick={() => setIsImportOpen(true)}
               className="flex items-center gap-2 bg-white border border-zinc-200 px-4 py-2 rounded-xl hover:bg-zinc-50 transition-colors font-medium shadow-sm"
             >
@@ -819,38 +889,57 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
 
           {/* Channels List */}
           <div className="lg:col-span-3 xl:col-span-4 space-y-4">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="flex items-center gap-4 flex-1">
-                <h2 className="text-lg font-semibold whitespace-nowrap">Danh sách kênh ({channels.length})</h2>
+            <div className="flex items-center justify-between gap-4 bg-white/50 p-2 rounded-2xl border border-zinc-100/50">
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                <h2 className="text-sm font-bold whitespace-nowrap text-zinc-800">Danh sách kênh ({channels.length})</h2>
                 <RealTimeLogConsole />
               </div>
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex bg-zinc-100 p-1 rounded-lg">
+              
+              <div className="flex items-center gap-2 shrink-0">
+                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50">
                   <button
                     onClick={() => setFilter('all')}
-                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${filter === 'all' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${filter === 'all' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
                     Tất cả ({channels.length})
                   </button>
                   <button
                     onClick={() => setFilter('live')}
-                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${filter === 'live' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${filter === 'live' ? 'bg-white shadow-sm text-emerald-600' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
                     Đang Live ({channels.filter(c => c.isLive).length})
                   </button>
                   <button
                     onClick={() => setFilter('off')}
-                    className={`px-3 py-1 text-sm font-medium rounded-md transition-colors ${filter === 'off' ? 'bg-white text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${filter === 'off' ? 'bg-white shadow-sm text-red-600' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
                     Offline ({channels.filter(c => !c.isLive).length})
                   </button>
                 </div>
+
+                <div className="h-6 w-px bg-zinc-200 mx-1"></div>
+
+                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50">
+                  {[3, 4, 5, 6].map((num) => (
+                    <button
+                      key={num}
+                      onClick={() => setGridCols(num)}
+                      className={`w-8 h-7 flex items-center justify-center rounded-lg text-[11px] font-bold transition-all ${gridCols === num ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    >
+                      {num}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="h-6 w-px bg-zinc-200 mx-1"></div>
+
                 <button 
                   onClick={handleRefresh}
                   disabled={loading}
-                  className="text-zinc-500 hover:text-zinc-900 transition-colors flex items-center gap-1 text-sm disabled:opacity-50"
+                  className="p-2 text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all disabled:opacity-50"
+                  title="Làm mới"
                 >
-                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} /> Làm mới
+                  <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
                 </button>
               </div>
             </div>
@@ -868,19 +957,6 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 />
               </div>
               <div className="flex items-center gap-2">
-                <div className="hidden md:flex items-center gap-1 bg-white border border-zinc-200 rounded-xl p-1">
-                  <LayoutGrid className="w-4 h-4 text-zinc-400 mx-2" />
-                  {[3, 4, 5, 6].map(cols => (
-                    <button
-                      key={cols}
-                      onClick={() => setGridCols(cols)}
-                      className={`w-8 h-8 rounded-lg flex items-center justify-center text-sm font-medium transition-colors ${gridCols === cols ? 'bg-zinc-100 text-zinc-900 shadow-sm' : 'text-zinc-500 hover:text-zinc-700 hover:bg-zinc-50'}`}
-                      title={`${cols} cột`}
-                    >
-                      {cols}
-                    </button>
-                  ))}
-                </div>
                 <button
                   onClick={() => setSortOrder(prev => prev === 'none' ? 'desc' : prev === 'desc' ? 'asc' : 'none')}
                   className={`flex items-center justify-center gap-2 px-4 py-2 bg-white border rounded-xl text-sm font-medium transition-colors whitespace-nowrap ${sortOrder !== 'none' ? 'border-emerald-200 text-emerald-700 bg-emerald-50' : 'border-zinc-200 text-zinc-700 hover:bg-zinc-50'}`}
@@ -997,6 +1073,96 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
             fetchChannels();
           }} 
         />
+      )}
+
+      {isHelpOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-zinc-900/60 backdrop-blur-md">
+          <div className="bg-white rounded-[40px] shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col overflow-hidden animate-in fade-in zoom-in duration-300 border border-white/20">
+            <div className="flex items-center justify-between p-8 border-b border-zinc-100 bg-zinc-50/50">
+              <div className="flex items-center gap-4">
+                <div className="w-14 h-14 bg-emerald-600 rounded-2xl flex items-center justify-center shadow-lg shadow-emerald-600/20">
+                  <HelpCircle className="w-8 h-8 text-white" />
+                </div>
+                <div>
+                  <h2 className="text-2xl font-black tracking-tight">HƯỚNG DẪN SỬ DỤNG</h2>
+                  <p className="text-zinc-500 text-sm font-medium">Làm chủ hệ thống chỉ trong 3 bước</p>
+                </div>
+              </div>
+              <button onClick={() => setIsHelpOpen(false)} className="p-3 text-zinc-400 hover:bg-zinc-100 rounded-full transition-all hover:rotate-90">
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+            
+            <div className="p-10 overflow-y-auto flex-1 space-y-12 custom-scrollbar">
+              <div className="grid gap-8">
+                {[
+                  {
+                    step: 1,
+                    title: "Nhập danh sách kênh",
+                    desc: "Nhấn nút 'Nhập danh sách' để thêm hàng loạt TikTok ID từ Excel hoặc Google Sheets. Hệ thống sẽ tự động nhận diện ID từ cột đầu tiên.",
+                    icon: <FileSpreadsheet className="w-6 h-6" />,
+                    color: "bg-emerald-50 text-emerald-600"
+                  },
+                  {
+                    step: 2,
+                    title: "Chế độ Thêm tạm thời",
+                    desc: "Tích chọn 'Thêm tạm thời' nếu bạn chỉ muốn theo dõi nhanh trong phiên làm việc hiện tại mà không lưu vào Firebase.",
+                    icon: <Clock className="w-6 h-6" />,
+                    color: "bg-blue-50 text-blue-600"
+                  },
+                  {
+                    step: 3,
+                    title: "Theo dõi & Thông báo",
+                    desc: "Hệ thống tự động quét mỗi 30 giây. Bạn sẽ nhận được thông báo Telegram ngay khi có kênh bắt đầu livestream.",
+                    icon: <Zap className="w-6 h-6" />,
+                    color: "bg-amber-50 text-amber-600"
+                  }
+                ].map((item) => (
+                  <div key={item.step} className="flex gap-8 group">
+                    <div className={`w-16 h-16 ${item.color} rounded-3xl flex items-center justify-center font-black text-2xl shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300`}>
+                      {item.step}
+                    </div>
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`p-1.5 rounded-lg ${item.color}`}>{item.icon}</span>
+                        <h4 className="font-black text-xl text-zinc-900">{item.title}</h4>
+                      </div>
+                      <p className="text-zinc-500 leading-relaxed font-medium">
+                        {item.desc}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="p-8 bg-zinc-900 rounded-[32px] text-white relative overflow-hidden">
+                <div className="absolute top-0 right-0 w-32 h-32 bg-emerald-500/10 rounded-full -translate-y-1/2 translate-x-1/2 blur-3xl"></div>
+                <h5 className="font-bold text-emerald-400 mb-4 flex items-center gap-2 text-lg">
+                  <AlertCircle className="w-5 h-5" /> Mẹo nhỏ cho bạn
+                </h5>
+                <ul className="space-y-3 text-zinc-300 font-medium">
+                  <li className="flex items-start gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-2 shrink-0"></div>
+                    <span>Sử dụng phím <kbd className="bg-zinc-800 px-1.5 py-0.5 rounded border border-zinc-700 text-xs text-zinc-400">F5</kbd> hoặc nút Làm mới để cập nhật trạng thái tức thì.</span>
+                  </li>
+                  <li className="flex items-start gap-3">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 mt-2 shrink-0"></div>
+                    <span>Đảm bảo Telegram Bot đã được thêm vào nhóm và cấp quyền Admin để gửi thông báo.</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="p-8 border-t border-zinc-100 bg-zinc-50/50 flex justify-center">
+              <button 
+                onClick={() => setIsHelpOpen(false)}
+                className="w-full max-w-xs py-4 bg-emerald-600 text-white rounded-2xl font-black text-lg hover:bg-emerald-700 transition-all shadow-xl shadow-emerald-600/20 active:scale-95"
+              >
+                BẮT ĐẦU NGAY
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
