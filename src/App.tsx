@@ -455,7 +455,7 @@ function MiniRAMMonitor() {
   const currentMem = stats[stats.length - 1]?.rss || 0;
 
   return (
-    <div className="flex items-center gap-3 bg-zinc-50/50 px-3 py-1.5 rounded-xl border border-zinc-100">
+    <div className="flex items-center gap-3 bg-zinc-50/50 px-3 py-1.5 rounded-xl border border-zinc-100 min-w-0">
       <div className="flex flex-col">
         <span className="text-[9px] text-zinc-400 font-bold uppercase tracking-wider leading-none mb-0.5">RAM</span>
         <span className="text-xs font-bold text-emerald-600 leading-none">{currentMem}MB</span>
@@ -525,7 +525,7 @@ function RealTimeLogConsole() {
         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">LOGS</span>
       </div>
       <div className="flex-1 overflow-hidden relative h-full flex items-center min-w-0">
-        <div className="animate-marquee pause flex gap-12 items-center">
+        <div className="animate-marquee pause flex gap-12 items-center max-w-full">
            {logs.length === 0 ? (
              <span className="text-[11px] text-zinc-400 italic">Đang chờ dữ liệu...</span>
            ) : (
@@ -751,7 +751,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     });
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans p-3 md:p-12 overflow-x-hidden">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans p-3 md:p-12 overflow-x-hidden max-w-full">
       <div className="max-w-[1600px] w-full mx-auto space-y-6 md:space-y-8">
         
         {quotaExceeded && (
@@ -809,8 +809,8 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
         {/* Config Status */}
         {configStatus && (
           <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-zinc-100 flex flex-col md:flex-row gap-4 md:gap-6 justify-between items-start md:items-center mb-6 md:mb-8">
-            <div className="space-y-1">
-              <h2 className="text-base md:text-lg font-semibold flex items-center gap-2">
+            <div className="space-y-1 min-w-0 flex-1">
+              <h2 className="text-base md:text-lg font-semibold flex items-center gap-2 truncate">
                 <Settings className="w-4 h-4 md:w-5 md:h-5 text-zinc-400" />
                 Trạng thái hệ thống
               </h2>
@@ -921,43 +921,43 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
           </div>
 
           {/* Channels List */}
-          <div className="lg:col-span-3 xl:col-span-4 space-y-4">
+          <div className="lg:col-span-3 xl:col-span-4 space-y-4 min-w-0 overflow-x-hidden">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white/50 p-3 rounded-2xl border border-zinc-100/50">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0 overflow-hidden">
-                <h2 className="text-sm font-bold whitespace-nowrap text-zinc-800">Danh sách kênh ({channels.length})</h2>
+              <div className="flex flex-col md:flex-row md:items-center gap-3 flex-1 min-w-0 overflow-hidden">
+                <h2 className="text-sm font-bold truncate text-zinc-800">Danh sách kênh ({channels.length})</h2>
                 <RealTimeLogConsole />
               </div>
               
-              <div className="flex flex-wrap items-center gap-2">
-                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50 shrink-0">
+              <div className="flex flex-wrap items-center gap-2 min-w-0">
+                <div className="flex bg-zinc-100/80 p-0.5 md:p-1 rounded-xl border border-zinc-200/50 min-w-0">
                   <button
                     onClick={() => setFilter('all')}
-                    className={`px-2 md:px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${filter === 'all' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-1.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[9px] md:text-[11px] font-bold transition-all ${filter === 'all' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
                     Tất cả ({channels.length})
                   </button>
                   <button
                     onClick={() => setFilter('live')}
-                    className={`px-2 md:px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${filter === 'live' ? 'bg-white shadow-sm text-emerald-600' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-1.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[9px] md:text-[11px] font-bold transition-all ${filter === 'live' ? 'bg-white shadow-sm text-emerald-600' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
-                    Đang Live ({channels.filter(c => c.isLive).length})
+                    Live ({channels.filter(c => c.isLive).length})
                   </button>
                   <button
                     onClick={() => setFilter('off')}
-                    className={`px-2 md:px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${filter === 'off' ? 'bg-white shadow-sm text-red-600' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-1.5 md:px-3 py-1 md:py-1.5 rounded-lg text-[9px] md:text-[11px] font-bold transition-all ${filter === 'off' ? 'bg-white shadow-sm text-red-600' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
-                    Offline ({channels.filter(c => !c.isLive).length})
+                    Off ({channels.filter(c => !c.isLive).length})
                   </button>
                 </div>
 
-                <div className="h-6 w-px bg-zinc-200 mx-1 shrink-0"></div>
+                <div className="h-6 w-px bg-zinc-200 mx-0.5 md:mx-1 shrink-0"></div>
 
-                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50 shrink-0">
+                <div className="flex bg-zinc-100/80 p-0.5 md:p-1 rounded-xl border border-zinc-200/50 min-w-0">
                   {[3, 4, 5, 6].map((num) => (
                     <button
                       key={num}
                       onClick={() => setGridCols(num)}
-                      className={`w-7 h-7 md:w-8 md:h-7 flex items-center justify-center rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${gridCols === num ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
+                      className={`w-6 h-6 md:w-8 md:h-7 flex items-center justify-center rounded-lg text-[9px] md:text-[11px] font-bold transition-all ${gridCols === num ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
                     >
                       {num}
                     </button>
@@ -1044,21 +1044,21 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 }`}>
                   {processedChannels.map((channel) => (
                     <div key={channel.docId} className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-row sm:flex-col items-center text-left sm:text-center group transition-all hover:shadow-md relative gap-3 sm:gap-0">
-                      <div className="flex sm:absolute sm:top-2 sm:right-2 gap-1 opacity-100 sm:opacity-0 md:group-hover:opacity-100 transition-opacity ml-auto sm:ml-0 order-last sm:order-none">
+                      <div className="flex sm:absolute sm:top-2 sm:right-2 gap-0.5 sm:gap-1 opacity-100 sm:opacity-0 md:group-hover:opacity-100 transition-opacity ml-auto sm:ml-0 order-last sm:order-none">
                         <button
                           onClick={() => handleCheckNow(channel.id, channel.docId)}
                           disabled={checkingId === channel.docId}
-                          className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          className="p-1 sm:p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                           title="Kiểm tra ngay"
                         >
-                          <RefreshCw className={`w-4 h-4 ${checkingId === channel.docId ? 'animate-spin' : ''}`} />
+                          <RefreshCw className={`w-3.5 h-3.5 sm:w-4 sm:h-4 ${checkingId === channel.docId ? 'animate-spin' : ''}`} />
                         </button>
                         <button
                           onClick={() => handleDeleteChannel(channel.docId)}
-                          className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          className="p-1 sm:p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                           title="Xóa kênh"
                         >
-                          <Trash2 className="w-4 h-4" />
+                          <Trash2 className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
                         </button>
                       </div>
                       
