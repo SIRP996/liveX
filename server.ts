@@ -70,6 +70,8 @@ if (firebaseConfig.projectId && firebaseConfig.apiKey) {
 interface UserConfig {
   telegramBotToken: string;
   telegramChatId: string;
+  zaloBotToken?: string;
+  zaloUserId?: string;
   proxies?: string[];
   useSystemProxies?: boolean;
 }
@@ -81,7 +83,15 @@ interface User {
 }
 
 const botInstances = new Map<string, TelegramBot>();
-const userServices = new Map<string, { bot: TelegramBot | null, chatId: string, token: string, proxies: string[], proxyIndex: number }>();
+const userServices = new Map<string, { 
+  bot: TelegramBot | null, 
+  chatId: string, 
+  token: string, 
+  zaloToken?: string,
+  zaloUserId?: string,
+  proxies: string[], 
+  proxyIndex: number 
+}>();
 
 const DEFAULT_PROXIES: string[] = [];
 
@@ -213,10 +223,97 @@ async function initUserService(username: string, config: UserConfig) {
     bot, 
     chatId: config.telegramChatId, 
     token: newToken, 
+    zaloToken: config.zaloBotToken,
+    zaloUserId: config.zaloUserId,
     proxies: userProxies, 
     proxyIndex: 0 
   });
 }
+
+async function sendZaloMessage(token: string, userId: string, text: string) {
+  if (!token || !userId) return;
+  console.log(`Attempting to send Zalo message to ${userId} using token ${token.substring(0, 10)}...`);
+  try {
+    const url = `https://bot-api.zaloplatforms.com/bot${token}/sendMessage`;
+    // Try standard Bot API payload
+    await axios.post(url, {
+      to: userId,
+      text: text
+    }).catch(async (err) => {
+      // If failed, try OA-style payload just in case
+      console.warn(`Zalo sendMessage failed for ${userId} with standard payload:`, err.response?.data || err.message);
+      console.log('Trying OA-style payload...');
+      return axios.post(url, {
+        recipient: { user_id: userId },
+        message: { text: text }
+      });
+    });
+    console.log(`Zalo message successfully sent to ${userId}`);
+  } catch (error: any) {
+    console.error(`CRITICAL: Error sending Zalo message to ${userId}:`, error.response?.data || error.message);
+  }
+}
+
+// Zalo Webhook to help users find their ID
+app.all(['/api/zalo/webhook', '/api/zalo/webhook/:identifier'], async (req: any, res: any) => {
+  // Log every single hit to this endpoint to debug
+  console.log(`[Zalo Webhook] ${req.method} hit from ${req.ip}`);
+  
+  // Handle Zalo's potential verification/challenge request
+  if (req.method === 'GET') {
+    return res.status(200).send(req.query.challenge || 'Zalo Webhook Active');
+  }
+
+  // Respond to Zalo immediately to prevent timeout
+  res.status(200).json({ error: 0, message: 'Success', ok: true });
+
+  // Process data in background
+  const data = req.body;
+  const secretToken = req.headers['x-zalo-secret-token'] || data?.secret_token;
+  
+  console.log(`[Zalo Webhook Data]`, JSON.stringify(data));
+  
+  const senderId = data?.sender?.id || data?.from?.id || data?.user_id || data?.uid || data?.sender_id || data?.follower?.id;
+  
+  if (senderId && db) {
+    try {
+      let targetUsername = '';
+      const usersRef = collection(db, 'users');
+      const querySnapshot = await getDocs(query(usersRef));
+      
+      const sanitizedSecret = secretToken ? String(secretToken).replace(/:/g, '_') : null;
+
+      for (const userDoc of querySnapshot.docs) {
+        const userData = userDoc.data();
+        const userToken = userData.config?.zaloBotToken;
+        if (userToken) {
+          const sanitizedUserToken = userToken.replace(/:/g, '_');
+          // Match by secret token OR if the payload contains the bot token
+          if (sanitizedSecret === sanitizedUserToken || userToken === secretToken || JSON.stringify(data).includes(userToken)) {
+            targetUsername = userDoc.id;
+            break;
+          }
+        }
+      }
+
+      if (targetUsername) {
+        await updateDoc(doc(db, 'users', targetUsername), {
+          'config.lastZaloUserId': senderId
+        });
+        console.log(`[Zalo Webhook] SUCCESS: Updated ID ${senderId} for ${targetUsername}`);
+        
+        // Optional: send confirmation back to user
+        const userSnap = await getDoc(doc(db, 'users', targetUsername));
+        const token = userSnap.data()?.config?.zaloBotToken;
+        if (token) {
+          await sendZaloMessage(token, senderId, `Đã nhận diện được ID của bạn: ${senderId}. Hãy quay lại ứng dụng để hoàn tất cấu hình.`);
+        }
+      }
+    } catch (e) {
+      console.error('[Zalo Webhook] Background Error:', e);
+    }
+  }
+});
 
 async function initAllServices() {
   if (!db) return;
@@ -638,6 +735,12 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
         } else if (service?.bot && service?.chatId) {
           service.bot.sendMessage(service.chatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
         }
+
+        // Send Zalo notification
+        if (service?.zaloToken && service?.zaloUserId) {
+          const zaloMessage = `🔴 Kênh ${channel.id} đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
+          sendZaloMessage(service.zaloToken, service.zaloUserId, zaloMessage);
+        }
       } 
       else if (status.isLive && channel.isLive) {
         addLog(username, channel.id, 'success', `Kênh @${channel.id} vẫn đang LIVE (${status.viewerCount} người xem).`);
@@ -816,6 +919,47 @@ app.get('/api/system/logs', authenticate, (req: any, res: any) => {
   res.json(userLogs);
 });
 
+app.post(['/api/zalo/set-webhook', '/zalo/set-webhook'], authenticate, async (req: any, res: any) => {
+  const { token } = req.body;
+  const username = req.user.username;
+  
+  if (!token) return res.status(400).json({ error: 'Bot Token is required' });
+
+  try {
+    const baseUrl = process.env.APP_URL || `https://${req.get('host')}`;
+    // Use the simplest possible URL to avoid Zalo validation issues
+    const webhookUrl = `${baseUrl}/api/zalo/webhook`;
+    
+    const entrypoint = `https://bot-api.zaloplatforms.com/bot${token}/setWebhook`;
+    
+    console.log(`[Zalo] Setting webhook for ${username} using token: ${token.substring(0, 10)}...`);
+    console.log(`[Zalo] Webhook URL: ${webhookUrl}`);
+    
+    const response = await axios.post(entrypoint, {
+      url: webhookUrl,
+      secret_token: token.replace(/:/g, '_') // Zalo doesn't allow colons in secret_token
+    });
+
+    console.log(`[Zalo] setWebhook response:`, JSON.stringify(response.data));
+
+    if (response.data && (response.data.error === 0 || response.data.ok)) {
+      res.json({ 
+        ok: true, 
+        webhookUrl,
+        data: response.data 
+      });
+    } else {
+      res.json({ ok: false, error: response.data?.message || 'Zalo returned an error', details: response.data });
+    }
+  } catch (error: any) {
+    console.error('[Zalo] Failed to set webhook:', error.response?.data || error.message);
+    res.status(500).json({ 
+      error: 'Failed to set Zalo webhook', 
+      details: error.response?.data || error.message 
+    });
+  }
+});
+
 // Auth Routes
 app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
   try {
@@ -968,7 +1112,9 @@ app.get(['/api/config-status', '/config-status'], authenticate, (req: any, res: 
   res.json({
     firebase: !!db,
     telegramBot: !!service?.bot,
-    telegramChatId: !!service?.chatId
+    telegramChatId: !!service?.chatId,
+    zaloBot: !!service?.zaloToken,
+    zaloUserId: !!service?.zaloUserId
   });
 });
 

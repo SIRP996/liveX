@@ -519,7 +519,7 @@ function RealTimeLogConsole() {
   };
 
   return (
-    <div className="flex-1 max-w-2xl h-9 bg-white border border-zinc-200 rounded-xl overflow-hidden relative flex items-center px-3 shadow-sm group">
+    <div className="w-full md:max-w-2xl h-9 bg-white border border-zinc-200 rounded-xl overflow-hidden relative flex items-center px-3 shadow-sm group">
       <div className="flex items-center gap-2 shrink-0 mr-3 border-r border-zinc-100 pr-3 bg-white z-10">
         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">LOGS</span>
@@ -751,8 +751,8 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
     });
 
   return (
-    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans p-6 md:p-12">
-      <div className="max-w-[1600px] w-full mx-auto space-y-8">
+    <div className="min-h-screen bg-zinc-50 text-zinc-900 font-sans p-3 md:p-12 overflow-x-hidden">
+      <div className="max-w-[1600px] w-full mx-auto space-y-6 md:space-y-8">
         
         {quotaExceeded && (
           <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-xl flex items-start gap-3">
@@ -768,39 +768,39 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
         )}
 
         {/* Header */}
-        <header className="flex items-center justify-between">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
-              <Activity className="text-emerald-500" />
-              TikTok Live Monitor
+            <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-zinc-900 flex items-center gap-2">
+              <Activity className="text-emerald-500 shrink-0" />
+              <span className="truncate">TikTok Live Monitor</span>
             </h1>
-            <p className="text-zinc-500 mt-1 flex items-center gap-2">
-              Xin chào, <span className="font-semibold text-zinc-900">{username}</span>
-              <button onClick={onLogout} className="text-xs bg-zinc-200 hover:bg-zinc-300 px-2 py-1 rounded-md transition-colors flex items-center gap-1">
+            <div className="text-zinc-500 mt-1 flex flex-wrap items-center gap-2">
+              <span className="text-sm">Xin chào, <span className="font-semibold text-zinc-900">{username}</span></span>
+              <button onClick={onLogout} className="text-[10px] bg-zinc-200 hover:bg-zinc-300 px-2 py-0.5 rounded-md transition-colors flex items-center gap-1">
                 <LogOut className="w-3 h-3" /> Đăng xuất
               </button>
-            </p>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-2 md:gap-3">
             <button 
               onClick={() => setIsHelpOpen(true)}
-              className="p-2 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-xl transition-all"
+              className="p-2 text-zinc-400 hover:text-zinc-900 hover:bg-zinc-100 rounded-xl transition-all shrink-0"
               title="Hướng dẫn"
             >
               <HelpCircle className="w-5 h-5" />
             </button>
             <button 
               onClick={() => setIsImportOpen(true)}
-              className="flex items-center gap-2 bg-white border border-zinc-200 px-4 py-2 rounded-xl hover:bg-zinc-50 transition-colors font-medium shadow-sm"
+              className="flex items-center gap-2 bg-white border border-zinc-200 px-3 md:px-4 py-2 rounded-xl hover:bg-zinc-50 transition-colors font-medium shadow-sm shrink-0 text-sm md:text-base"
             >
-              <Upload className="w-5 h-5" />
+              <Upload className="w-4 h-4 md:w-5 md:h-5" />
               Nhập danh sách
             </button>
             <button 
               onClick={() => setIsSettingsOpen(true)}
-              className="flex items-center gap-2 bg-white border border-zinc-200 px-4 py-2 rounded-xl hover:bg-zinc-50 transition-colors font-medium shadow-sm"
+              className="flex items-center gap-2 bg-white border border-zinc-200 px-3 md:px-4 py-2 rounded-xl hover:bg-zinc-50 transition-colors font-medium shadow-sm shrink-0 text-sm md:text-base"
             >
-              <Settings className="w-5 h-5" />
+              <Settings className="w-4 h-4 md:w-5 md:h-5" />
               Cấu hình
             </button>
           </div>
@@ -808,23 +808,27 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
 
         {/* Config Status */}
         {configStatus && (
-          <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100 flex flex-col md:flex-row gap-6 justify-between items-start md:items-center mb-8">
+          <div className="bg-white p-4 md:p-6 rounded-2xl shadow-sm border border-zinc-100 flex flex-col md:flex-row gap-4 md:gap-6 justify-between items-start md:items-center mb-6 md:mb-8">
             <div className="space-y-1">
-              <h2 className="text-lg font-semibold flex items-center gap-2">
-                <Settings className="w-5 h-5 text-zinc-400" />
+              <h2 className="text-base md:text-lg font-semibold flex items-center gap-2">
+                <Settings className="w-4 h-4 md:w-5 md:h-5 text-zinc-400" />
                 Trạng thái hệ thống
               </h2>
-              <p className="text-sm text-zinc-500">
+              <p className="text-xs md:text-sm text-zinc-500">
                 {configStatus.firebase ? 'Hệ thống lưu trữ (Firebase) đang hoạt động bình thường.' : 'Vui lòng kiểm tra lại cấu hình Firebase.'}
               </p>
             </div>
             
-            <div className="flex flex-wrap items-center gap-4">
+            <div className="flex flex-wrap items-center gap-2 md:gap-4">
               <MiniRAMMonitor />
               <div className="h-8 w-px bg-zinc-100 hidden md:block mx-2"></div>
-              <StatusBadge label="Firebase" active={configStatus.firebase} />
-              <StatusBadge label="Telegram Bot" active={configStatus.telegramBot} />
-              <StatusBadge label="Chat ID" active={configStatus.telegramChatId} />
+              <div className="flex flex-wrap gap-2">
+                <StatusBadge label="Firebase" active={configStatus.firebase} />
+                <StatusBadge label="Telegram Bot" active={configStatus.telegramBot} />
+                <StatusBadge label="Chat ID" active={configStatus.telegramChatId} />
+                <StatusBadge label="Zalo Bot" active={configStatus.zaloBot} />
+                <StatusBadge label="Zalo ID" active={configStatus.zaloUserId} />
+              </div>
             </div>
           </div>
         )}
@@ -885,7 +889,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   </label>
                 </div>
 
-                <div className="flex gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <button
                     type="submit"
                     disabled={loading || !newChannel.trim()}
@@ -918,54 +922,54 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
 
           {/* Channels List */}
           <div className="lg:col-span-3 xl:col-span-4 space-y-4">
-            <div className="flex items-center justify-between gap-4 bg-white/50 p-2 rounded-2xl border border-zinc-100/50">
-              <div className="flex items-center gap-4 flex-1 min-w-0">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white/50 p-3 rounded-2xl border border-zinc-100/50">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0">
                 <h2 className="text-sm font-bold whitespace-nowrap text-zinc-800">Danh sách kênh ({channels.length})</h2>
                 <RealTimeLogConsole />
               </div>
               
-              <div className="flex items-center gap-2 shrink-0">
-                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50">
+              <div className="flex flex-wrap items-center gap-2">
+                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50 shrink-0">
                   <button
                     onClick={() => setFilter('all')}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${filter === 'all' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-2 md:px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${filter === 'all' ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
                     Tất cả ({channels.length})
                   </button>
                   <button
                     onClick={() => setFilter('live')}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${filter === 'live' ? 'bg-white shadow-sm text-emerald-600' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-2 md:px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${filter === 'live' ? 'bg-white shadow-sm text-emerald-600' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
                     Đang Live ({channels.filter(c => c.isLive).length})
                   </button>
                   <button
                     onClick={() => setFilter('off')}
-                    className={`px-3 py-1.5 rounded-lg text-[11px] font-bold transition-all ${filter === 'off' ? 'bg-white shadow-sm text-red-600' : 'text-zinc-500 hover:text-zinc-700'}`}
+                    className={`px-2 md:px-3 py-1.5 rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${filter === 'off' ? 'bg-white shadow-sm text-red-600' : 'text-zinc-500 hover:text-zinc-700'}`}
                   >
                     Offline ({channels.filter(c => !c.isLive).length})
                   </button>
                 </div>
 
-                <div className="h-6 w-px bg-zinc-200 mx-1"></div>
+                <div className="h-6 w-px bg-zinc-200 mx-1 shrink-0"></div>
 
-                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50">
+                <div className="flex bg-zinc-100/80 p-1 rounded-xl border border-zinc-200/50 shrink-0">
                   {[3, 4, 5, 6].map((num) => (
                     <button
                       key={num}
                       onClick={() => setGridCols(num)}
-                      className={`w-8 h-7 flex items-center justify-center rounded-lg text-[11px] font-bold transition-all ${gridCols === num ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
+                      className={`w-7 h-7 md:w-8 md:h-7 flex items-center justify-center rounded-lg text-[10px] md:text-[11px] font-bold transition-all ${gridCols === num ? 'bg-white shadow-sm text-zinc-900' : 'text-zinc-500 hover:text-zinc-700'}`}
                     >
                       {num}
                     </button>
                   ))}
                 </div>
 
-                <div className="h-6 w-px bg-zinc-200 mx-1"></div>
+                <div className="h-6 w-px bg-zinc-200 mx-1 shrink-0"></div>
 
                 <button 
                   onClick={handleRefresh}
                   disabled={loading}
-                  className="p-2 text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all disabled:opacity-50"
+                  className="p-2 text-zinc-500 hover:text-emerald-600 hover:bg-emerald-50 rounded-xl transition-all disabled:opacity-50 shrink-0"
                   title="Làm mới"
                 >
                   <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
@@ -985,7 +989,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 transition-all"
                 />
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <button
                   onClick={() => setIsEcoMode(!isEcoMode)}
                   className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition-all border ${
@@ -1032,93 +1036,95 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 )}
               </div>
             ) : (
-              <div className={`grid gap-4 ${
-                gridCols === 3 ? 'grid-cols-2 sm:grid-cols-3' :
-                gridCols === 4 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4' :
-                gridCols === 5 ? 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5' :
-                'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
-              }`}>
-                {processedChannels.map((channel) => (
-                  <div key={channel.docId} className="bg-white p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-col items-center text-center group transition-all hover:shadow-md relative">
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-0 md:group-hover:opacity-100 transition-opacity">
-                      <button
-                        onClick={() => handleCheckNow(channel.id, channel.docId)}
-                        disabled={checkingId === channel.docId}
-                        className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                        title="Kiểm tra ngay"
-                      >
-                        <RefreshCw className={`w-4 h-4 ${checkingId === channel.docId ? 'animate-spin' : ''}`} />
-                      </button>
-                      <button
-                        onClick={() => handleDeleteChannel(channel.docId)}
-                        className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
-                        title="Xóa kênh"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </div>
-                    
-                    <div className="relative mb-3">
-                      {channel.coverUrl ? (
-                        <img src={channel.coverUrl} alt={channel.id} className="w-16 h-16 rounded-full object-cover border-2 border-zinc-100" referrerPolicy="no-referrer" />
-                      ) : (
-                        <div className="w-16 h-16 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-400 font-bold text-2xl uppercase border-2 border-zinc-100">
-                          {channel.id.charAt(0)}
-                        </div>
-                      )}
-                      {channel.isLive && (
-                        <span className="absolute bottom-0 right-0 flex h-4 w-4">
-                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
-                          <span className="relative inline-flex rounded-full h-4 w-4 bg-red-500 border-2 border-white"></span>
-                        </span>
-                      )}
-                    </div>
-                    
-                    <div className="flex items-center justify-center gap-1 w-full">
-                      <a 
-                        href={`https://www.tiktok.com/@${channel.id}`} 
-                        target="_blank" 
-                        rel="noopener noreferrer"
-                        className="font-semibold text-zinc-900 hover:text-emerald-600 transition-colors truncate"
-                        title={`@${channel.id}`}
-                      >
-                        @{channel.id}
-                      </a>
-                      {channel.isTemporary && (
-                        <span className="px-1.5 py-0.5 text-[10px] font-medium bg-amber-100 text-amber-700 rounded-md shrink-0" title="Kênh tạm thời (chỉ lưu trên RAM)">Tạm</span>
-                      )}
-                      <button
-                        onClick={(e) => handleCopyId(channel.id, e)}
-                        className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded transition-colors shrink-0"
-                        title="Copy ID"
-                      >
-                        {copiedId === channel.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
-                      </button>
-                    </div>
-                    
-                    <div className="text-xs text-zinc-500 mt-1.5 w-full flex justify-center">
-                      {channel.isLive ? (
-                        <div className="inline-flex items-center divide-x divide-red-200 bg-red-50 rounded-full border border-red-100 overflow-hidden max-w-full">
-                          <span className="flex items-center gap-1 text-red-600 font-medium px-1.5 py-0.5">
-                            <span className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse shrink-0"></span>
-                            <span className="text-[10px] sm:text-[11px] whitespace-nowrap">LIVE</span>
+                <div className={`grid gap-3 sm:gap-4 ${
+                  gridCols === 3 ? 'grid-cols-1 sm:grid-cols-3' :
+                  gridCols === 4 ? 'grid-cols-1 sm:grid-cols-3 md:grid-cols-4' :
+                  gridCols === 5 ? 'grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5' :
+                  'grid-cols-1 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6'
+                }`}>
+                  {processedChannels.map((channel) => (
+                    <div key={channel.docId} className="bg-white p-3 sm:p-4 rounded-2xl shadow-sm border border-zinc-100 flex flex-row sm:flex-col items-center text-left sm:text-center group transition-all hover:shadow-md relative gap-3 sm:gap-0">
+                      <div className="flex sm:absolute sm:top-2 sm:right-2 gap-1 opacity-100 sm:opacity-0 md:group-hover:opacity-100 transition-opacity ml-auto sm:ml-0 order-last sm:order-none">
+                        <button
+                          onClick={() => handleCheckNow(channel.id, channel.docId)}
+                          disabled={checkingId === channel.docId}
+                          className="p-1.5 text-zinc-400 hover:text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                          title="Kiểm tra ngay"
+                        >
+                          <RefreshCw className={`w-4 h-4 ${checkingId === channel.docId ? 'animate-spin' : ''}`} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteChannel(channel.docId)}
+                          className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          title="Xóa kênh"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                        </button>
+                      </div>
+                      
+                      <div className="relative sm:mb-3 shrink-0">
+                        {channel.coverUrl ? (
+                          <img src={channel.coverUrl} alt={channel.id} className="w-12 h-12 sm:w-16 sm:h-16 rounded-full object-cover border-2 border-zinc-100" referrerPolicy="no-referrer" />
+                        ) : (
+                          <div className="w-12 h-12 sm:w-16 sm:h-16 rounded-full bg-zinc-100 flex items-center justify-center text-zinc-400 font-bold text-xl sm:text-2xl uppercase border-2 border-zinc-100">
+                            {channel.id.charAt(0)}
+                          </div>
+                        )}
+                        {channel.isLive && (
+                          <span className="absolute bottom-0 right-0 flex h-3.5 w-3.5 sm:h-4 sm:w-4">
+                            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+                            <span className="relative inline-flex rounded-full h-3.5 w-3.5 sm:h-4 sm:w-4 bg-red-500 border-2 border-white"></span>
                           </span>
-                          <span className="flex items-center gap-1 text-red-700 font-medium px-1.5 py-0.5 bg-red-100/50 min-w-0">
-                            <Users className="w-2.5 h-2.5 shrink-0" /> 
-                            <span className="text-[10px] sm:text-[11px] truncate">{channel.viewerCount?.toLocaleString() || 0}</span>
-                          </span>
+                        )}
+                      </div>
+                      
+                      <div className="flex-1 min-w-0 flex flex-col sm:items-center">
+                        <div className="flex items-center sm:justify-center gap-1 w-full">
+                          <a 
+                            href={`https://www.tiktok.com/@${channel.id}`} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="font-semibold text-zinc-900 hover:text-emerald-600 transition-colors truncate text-sm sm:text-base"
+                            title={`@${channel.id}`}
+                          >
+                            @{channel.id}
+                          </a>
+                          {channel.isTemporary && (
+                            <span className="px-1.5 py-0.5 text-[9px] sm:text-[10px] font-medium bg-amber-100 text-amber-700 rounded-md shrink-0" title="Kênh tạm thời (chỉ lưu trên RAM)">Tạm</span>
+                          )}
+                          <button
+                            onClick={(e) => handleCopyId(channel.id, e)}
+                            className="p-1 text-zinc-400 hover:text-zinc-700 hover:bg-zinc-100 rounded transition-colors shrink-0"
+                            title="Copy ID"
+                          >
+                            {copiedId === channel.id ? <Check className="w-3.5 h-3.5 text-emerald-500" /> : <Copy className="w-3.5 h-3.5" />}
+                          </button>
                         </div>
-                      ) : (
-                        <span className="truncate block w-full text-zinc-400" title={channel.lastLiveAt ? `Live lần cuối: ${formatDistanceToNow(new Date(channel.lastLiveAt), { addSuffix: true })}` : 'Chưa từng live'}>
-                          {channel.lastLiveAt 
-                            ? formatDistanceToNow(new Date(channel.lastLiveAt), { addSuffix: true })
-                            : 'Chưa từng live'}
-                        </span>
-                      )}
+                        
+                        <div className="text-[11px] sm:text-xs text-zinc-500 mt-0.5 sm:mt-1.5 w-full flex sm:justify-center">
+                          {channel.isLive ? (
+                            <div className="inline-flex items-center divide-x divide-red-200 bg-red-50 rounded-full border border-red-100 overflow-hidden max-w-full">
+                              <span className="flex items-center gap-1 text-red-600 font-medium px-1.5 py-0.5">
+                                <span className="w-1 h-1 sm:w-1.5 sm:h-1.5 rounded-full bg-red-500 animate-pulse shrink-0"></span>
+                                <span className="text-[9px] sm:text-[11px] whitespace-nowrap">LIVE</span>
+                              </span>
+                              <span className="flex items-center gap-1 text-red-700 font-medium px-1.5 py-0.5 bg-red-100/50 min-w-0">
+                                <Users className="w-2 h-2 sm:w-2.5 sm:h-2.5 shrink-0" /> 
+                                <span className="text-[9px] sm:text-[11px] truncate">{channel.viewerCount?.toLocaleString() || 0}</span>
+                              </span>
+                            </div>
+                          ) : (
+                            <span className="truncate block w-full text-zinc-400" title={channel.lastLiveAt ? `Live lần cuối: ${formatDistanceToNow(new Date(channel.lastLiveAt), { addSuffix: true })}` : 'Chưa từng live'}>
+                              {channel.lastLiveAt 
+                                ? formatDistanceToNow(new Date(channel.lastLiveAt), { addSuffix: true })
+                                : 'Chưa từng live'}
+                            </span>
+                          )}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                ))}
-              </div>
+                  ))}
+                </div>
             )}
           </div>
         </div>
@@ -1188,20 +1194,20 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                     color: "bg-amber-50 text-amber-600"
                   }
                 ].map((item) => (
-                  <div key={item.step} className="flex gap-8 group">
-                    <div className={`w-16 h-16 ${item.color} rounded-3xl flex items-center justify-center font-black text-2xl shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300`}>
-                      {item.step}
-                    </div>
-                    <div className="space-y-2 pt-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`p-1.5 rounded-lg ${item.color}`}>{item.icon}</span>
-                        <h4 className="font-black text-xl text-zinc-900">{item.title}</h4>
-                      </div>
-                      <p className="text-zinc-500 leading-relaxed font-medium">
-                        {item.desc}
-                      </p>
-                    </div>
+              <div className="flex flex-col sm:flex-row gap-8 group">
+                <div className={`w-12 h-12 md:w-16 md:h-16 ${item.color} rounded-2xl md:rounded-3xl flex items-center justify-center font-black text-xl md:text-2xl shrink-0 shadow-sm group-hover:scale-110 transition-transform duration-300`}>
+                  {item.step}
+                </div>
+                <div className="space-y-2 pt-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`p-1.5 rounded-lg ${item.color}`}>{item.icon}</span>
+                    <h4 className="font-black text-lg md:text-xl text-zinc-900">{item.title}</h4>
                   </div>
+                  <p className="text-zinc-500 leading-relaxed font-medium text-sm md:text-base">
+                    {item.desc}
+                  </p>
+                </div>
+              </div>
                 ))}
               </div>
 
@@ -1240,10 +1246,10 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
 
 function StatusBadge({ label, active }: { label: string; active: boolean }) {
   return (
-    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium ${
+    <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[10px] md:text-xs font-medium shrink-0 ${
       active ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' : 'bg-red-50 text-red-700 border border-red-200'
     }`}>
-      {active ? <CheckCircle className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+      {active ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
       {label}
     </div>
   );
@@ -1253,26 +1259,42 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
   const [config, setConfig] = useState({
     telegramBotToken: '',
     telegramChatId: '',
+    zaloBotToken: '',
+    zaloUserId: '',
+    lastZaloUserId: '',
     proxies: '',
     useSystemProxies: false
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [settingWebhook, setSettingWebhook] = useState(false);
+  const [webhookUrl, setWebhookUrl] = useState('');
 
   useEffect(() => {
-    fetchWithAuth('/api/config')
-      .then(res => res.json())
-      .then(data => {
-        setConfig({
-          ...data,
-          proxies: data.proxies ? data.proxies.join('\n') : ''
+    const fetchConfig = () => {
+      fetchWithAuth('/api/config')
+        .then(res => res.json())
+        .then(data => {
+          setConfig(prev => ({
+            ...data,
+            proxies: data.proxies ? data.proxies.join('\n') : prev.proxies,
+            // Keep current input values for other fields unless they were empty
+            telegramBotToken: prev.telegramBotToken || data.telegramBotToken || '',
+            telegramChatId: prev.telegramChatId || data.telegramChatId || '',
+            zaloBotToken: prev.zaloBotToken || data.zaloBotToken || '',
+            zaloUserId: prev.zaloUserId || data.zaloUserId || '',
+          }));
+          setLoading(false);
+        })
+        .catch(err => {
+          console.error(err);
+          setLoading(false);
         });
-        setLoading(false);
-      })
-      .catch(err => {
-        console.error(err);
-        setLoading(false);
-      });
+    };
+
+    fetchConfig();
+    const interval = setInterval(fetchConfig, 3000);
+    return () => clearInterval(interval);
   }, []);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
@@ -1281,6 +1303,33 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
       ...config, 
       [name]: type === 'checkbox' ? (e.target as HTMLInputElement).checked : value 
     });
+  };
+
+  const handleSetZaloWebhook = async () => {
+    if (!config.zaloBotToken) {
+      alert('Vui lòng nhập Zalo Bot Token trước');
+      return;
+    }
+    setSettingWebhook(true);
+    try {
+      const res = await fetchWithAuth('/api/zalo/set-webhook', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: config.zaloBotToken })
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setWebhookUrl(data.webhookUrl || '');
+        alert('Kích hoạt Webhook thành công! Bây giờ hãy nhắn tin cho Bot để lấy ID.');
+      } else {
+        alert('Lỗi: ' + (data.error || 'Không thể kích hoạt Webhook'));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Lỗi kết nối máy chủ');
+    } finally {
+      setSettingWebhook(false);
+    }
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -1340,6 +1389,46 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
             </div>
 
             <div className="space-y-4">
+              <h3 className="text-lg font-semibold text-orange-600 border-b pb-2">Zalo Configuration (New)</h3>
+              <div className="grid md:grid-cols-2 gap-4">
+                <InputField label="Bot Token" name="zaloBotToken" value={config.zaloBotToken} onChange={handleChange} />
+                <InputField label="User ID / Group ID" name="zaloUserId" value={config.zaloUserId} onChange={handleChange} />
+              </div>
+              
+              <div className="bg-orange-50 p-4 rounded-xl border border-orange-100 space-y-3">
+                <div className="flex items-center justify-between">
+                  <p className="text-sm text-orange-800 font-medium">Hướng dẫn lấy Zalo ID:</p>
+                  <button
+                    type="button"
+                    onClick={handleSetZaloWebhook}
+                    disabled={settingWebhook}
+                    className="flex items-center gap-1 bg-orange-600 hover:bg-orange-700 text-white px-3 py-1 rounded-lg text-xs font-bold transition-colors disabled:opacity-50"
+                  >
+                    {settingWebhook ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Zap className="w-3 h-3" />}
+                    Kích hoạt Webhook tự động
+                  </button>
+                </div>
+                <ol className="text-xs text-orange-700 space-y-1 list-decimal ml-4">
+                  <li>Nhập <b>Bot Token</b> ở trên.</li>
+                  <li>Nhấn nút <b>Kích hoạt Webhook tự động</b> màu cam.</li>
+                  <li>Dùng tài khoản Zalo cá nhân nhắn tin cho Bot.</li>
+                  <li>Bot sẽ tự động gửi lại ID của bạn. Hãy copy dán vào ô trên.</li>
+                </ol>
+                {webhookUrl && (
+                  <div className="mt-2 p-2 bg-white rounded border border-orange-200">
+                    <p className="text-[10px] text-orange-400 uppercase font-bold mb-1">Webhook URL (Đã kích hoạt):</p>
+                    <p className="text-[10px] font-mono break-all text-zinc-500">{webhookUrl}</p>
+                  </div>
+                )}
+                {config.lastZaloUserId && (
+                  <div className="mt-2 pt-2 border-t border-orange-200">
+                    <p className="text-xs text-orange-800">ID vừa nhận được từ Webhook: <span className="font-mono font-bold bg-white px-2 py-1 rounded border border-orange-300 ml-1">{config.lastZaloUserId}</span></p>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="space-y-4">
               <div className="flex items-center justify-between border-b pb-2">
                 <h3 className="text-lg font-semibold text-emerald-600">Proxy Configuration</h3>
                 <div className="flex items-center gap-4">
@@ -1385,7 +1474,7 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
           </form>
         </div>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-col sm:flex-row items-center gap-3 p-6 border-t border-zinc-100">
             <button 
               type="button"
               onClick={() => {
@@ -1393,31 +1482,36 @@ function SettingsModal({ onClose, onSaved }: { onClose: () => void, onSaved: () 
                   setConfig({
                     telegramBotToken: '',
                     telegramChatId: '',
+                    zaloBotToken: '',
+                    zaloUserId: '',
+                    lastZaloUserId: '',
                     proxies: '',
                     useSystemProxies: false
                   });
                 }
               }}
-              className="px-4 py-2 text-red-600 font-medium hover:bg-red-50 rounded-xl transition-colors border border-red-100"
+              className="w-full sm:w-auto px-4 py-2 text-red-600 font-medium hover:bg-red-50 rounded-xl transition-colors border border-red-100 text-sm"
             >
               Khôi phục mặc định
             </button>
-            <button 
-              type="button" 
-              onClick={onClose}
-              className="px-4 py-2 text-zinc-600 font-medium hover:bg-zinc-200 rounded-xl transition-colors"
-            >
-              Hủy
-            </button>
-            <button 
-              type="submit" 
-              form="config-form"
-              disabled={saving}
-              className="flex items-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2 rounded-xl font-medium transition-colors disabled:opacity-50"
-            >
-              {saving ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-              Lưu cấu hình
-            </button>
+            <div className="flex items-center gap-3 w-full sm:w-auto sm:ml-auto">
+              <button 
+                type="button" 
+                onClick={onClose}
+                className="flex-1 sm:flex-none px-4 py-2 text-zinc-600 font-medium hover:bg-zinc-200 rounded-xl transition-colors text-sm"
+              >
+                Hủy
+              </button>
+              <button 
+                type="submit" 
+                form="config-form"
+                disabled={saving}
+                className="flex-1 sm:flex-none flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-6 py-2 rounded-xl font-medium transition-colors disabled:opacity-50 text-sm"
+              >
+                {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                Lưu
+              </button>
+            </div>
           </div>
       </div>
     </div>
