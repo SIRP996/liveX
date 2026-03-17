@@ -519,12 +519,12 @@ function RealTimeLogConsole() {
   };
 
   return (
-    <div className="w-full md:max-w-2xl h-9 bg-white border border-zinc-200 rounded-xl overflow-hidden relative flex items-center px-3 shadow-sm group">
+    <div className="w-full max-w-full md:max-w-2xl h-9 bg-white border border-zinc-200 rounded-xl overflow-hidden relative flex items-center px-3 shadow-sm group min-w-0">
       <div className="flex items-center gap-2 shrink-0 mr-3 border-r border-zinc-100 pr-3 bg-white z-10">
         <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
         <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">LOGS</span>
       </div>
-      <div className="flex-1 overflow-hidden relative h-full flex items-center">
+      <div className="flex-1 overflow-hidden relative h-full flex items-center min-w-0">
         <div className="animate-marquee pause flex gap-12 items-center">
            {logs.length === 0 ? (
              <span className="text-[11px] text-zinc-400 italic">Đang chờ dữ liệu...</span>
@@ -838,7 +838,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
           
           {/* Add Channel Form */}
           <div className="lg:col-span-1 space-y-4">
-            <div className="bg-white p-6 rounded-2xl shadow-sm border border-zinc-100">
+            <div className="bg-white p-4 sm:p-6 rounded-2xl shadow-sm border border-zinc-100">
               <h2 className="text-lg font-semibold mb-4">Thêm kênh theo dõi</h2>
               <form onSubmit={handleAddChannel} className="space-y-4">
                 <div>
@@ -876,15 +876,15 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   </div>
                 )}
 
-                <div className="flex items-center gap-2 mt-2">
+                <div className="flex items-start gap-2 mt-2">
                   <input
                     type="checkbox"
                     id="isTemporary"
                     checked={isTemporary}
                     onChange={(e) => setIsTemporary(e.target.checked)}
-                    className="w-4 h-4 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500"
+                    className="w-4 h-4 mt-0.5 text-emerald-600 rounded border-zinc-300 focus:ring-emerald-500 shrink-0"
                   />
-                  <label htmlFor="isTemporary" className="text-sm text-zinc-600 cursor-pointer">
+                  <label htmlFor="isTemporary" className="text-sm text-zinc-600 cursor-pointer leading-tight">
                     Thêm tạm thời (chỉ lưu trên RAM, không lưu Firebase)
                   </label>
                 </div>
@@ -893,7 +893,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                   <button
                     type="submit"
                     disabled={loading || !newChannel.trim()}
-                    className="flex-1 flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-zinc-900 hover:bg-zinc-800 text-white px-4 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0"
                   >
                     {loading ? <RefreshCw className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
                     Thêm kênh
@@ -902,7 +902,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                     type="button"
                     onClick={handleCheckChannel}
                     disabled={loading || !newChannel.trim()}
-                    className="flex-1 flex items-center justify-center gap-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-4 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="w-full sm:flex-1 flex items-center justify-center gap-2 bg-emerald-100 hover:bg-emerald-200 text-emerald-800 px-4 py-2.5 rounded-xl font-medium transition-colors disabled:opacity-50 disabled:cursor-not-allowed min-w-0"
                   >
                     <Activity className="w-5 h-5" />
                     Kiểm tra ngay
@@ -923,7 +923,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
           {/* Channels List */}
           <div className="lg:col-span-3 xl:col-span-4 space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 bg-white/50 p-3 rounded-2xl border border-zinc-100/50">
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0">
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0 overflow-hidden">
                 <h2 className="text-sm font-bold whitespace-nowrap text-zinc-800">Danh sách kênh ({channels.length})</h2>
                 <RealTimeLogConsole />
               </div>
