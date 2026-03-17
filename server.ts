@@ -393,11 +393,15 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
       error.code === 'ECONNRESET' || 
       error.code === 'ETIMEDOUT'
     )) {
-      console.log(`Proxy/Network error for ${username} (${error.message}), retrying with next proxy... (${retryCount + 1}/5)`);
+      const msg = `Proxy/Network error for ${username} (${error.message}), retrying with next proxy... (${retryCount + 1}/5)`;
+      console.log(msg);
+      addLog(ownerUsername || 'system', username, 'retrying', msg);
       return checkTikTokLive(username, retryCount + 1, ownerUsername);
     }
 
-    console.error(`Error checking TikTok for ${username}:`, error.message);
+    const errorMsg = `Error checking TikTok for ${username}: ${error.message}`;
+    console.error(errorMsg);
+    addLog(ownerUsername || 'system', username, 'error', errorMsg);
     return { isLive: false, viewerCount: 0, error: true };
   }
 }
@@ -416,6 +420,34 @@ const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 let usersCache: string[] = [];
 let usersCacheTime = 0;
 const USERS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+
+// --- SYSTEM LOGS ---
+interface ScanLog {
+  id: string;
+  channelId: string;
+  status: 'success' | 'error' | 'retrying' | 'info';
+  message: string;
+  timestamp: string;
+  username: string;
+}
+
+let scanLogs: ScanLog[] = [];
+const MAX_LOGS = 50;
+
+function addLog(username: string, channelId: string, status: ScanLog['status'], message: string) {
+  const log: ScanLog = {
+    id: Math.random().toString(36).substring(2, 9),
+    channelId,
+    status,
+    message,
+    timestamp: new Date().toISOString(),
+    username
+  };
+  scanLogs.unshift(log);
+  if (scanLogs.length > MAX_LOGS) {
+    scanLogs = scanLogs.slice(0, MAX_LOGS);
+  }
+}
 
 async function getUserChannels(username: string): Promise<any[]> {
   if (!db || username.startsWith('guest_')) return temporaryChannels.get(username) || [];
@@ -520,6 +552,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
     };
 
     const processChannel = async (channel: any) => {
+      addLog(username, channel.id, 'info', `Bắt đầu quét kênh @${channel.id}...`);
       // Add a random delay to avoid rate limiting (2-5 seconds)
       await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
       
@@ -536,6 +569,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       const status = await checkTikTokLive(channel.id, 0, username);
       
       if (status.error) {
+        addLog(username, channel.id, 'error', `Quét kênh @${channel.id} thất bại (Lỗi Proxy/TikTok).`);
         console.log(`Skipping update for ${channel.id} due to fetch error.`);
         if (needsUpdate) {
           if (!channel.isTemporary) {
@@ -549,6 +583,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       let didUpdate = false;
 
       if (status.isLive && !channel.isLive) {
+        addLog(username, channel.id, 'success', `Kênh @${channel.id} vừa bắt đầu LIVE!`);
         console.log(`${channel.id} is now LIVE for ${username}!`);
         
         sessions.push(Date.now()); // Log start time
@@ -578,6 +613,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
         }
       } 
       else if (status.isLive && channel.isLive) {
+        addLog(username, channel.id, 'success', `Kênh @${channel.id} vẫn đang LIVE (${status.viewerCount} người xem).`);
         updateData = {
           ...updateData,
           viewerCount: status.viewerCount || 0,
@@ -590,6 +626,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       }
       else if (!status.isLive && channel.isLive) {
         const strikes = (channel.offlineStrikes || 0) + 1;
+        addLog(username, channel.id, 'info', `Kênh @${channel.id} tạm thời Offline (Lần ${strikes}/3).`);
         // Require 3 consecutive offline checks (3 minutes) before marking as offline
         if (strikes >= 3) {
           console.log(`${channel.id} is now OFFLINE for ${username}.`);
@@ -621,6 +658,8 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
           await safeUpdateDoc(channel.docId, updateData);
         }
         didUpdate = true;
+      } else {
+        addLog(username, channel.id, 'info', `Kênh @${channel.id} đang Offline.`);
       }
 
       if (didUpdate) {
@@ -736,6 +775,11 @@ const authenticate = async (req: any, res: any, next: any) => {
     res.status(401).json({ error: 'Invalid token' });
   }
 };
+
+app.get('/api/system/logs', authenticate, (req: any, res: any) => {
+  const userLogs = scanLogs.filter(log => log.username === req.user.username || log.username === 'system');
+  res.json(userLogs);
+});
 
 // Auth Routes
 app.post(['/api/auth/register', '/auth/register'], async (req, res) => {

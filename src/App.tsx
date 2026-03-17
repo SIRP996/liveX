@@ -417,6 +417,71 @@ function MiniRAMMonitor() {
   );
 }
 
+interface ScanLog {
+  id: string;
+  channelId: string;
+  status: 'success' | 'error' | 'retrying' | 'info';
+  message: string;
+  timestamp: string;
+  username: string;
+}
+
+function RealTimeLogConsole() {
+  const [logs, setLogs] = useState<ScanLog[]>([]);
+
+  useEffect(() => {
+    const fetchLogs = async () => {
+      try {
+        const res = await fetchWithAuth('/api/system/logs');
+        if (res.ok) {
+          const data = await res.json();
+          setLogs(data);
+        }
+      } catch (e) {
+        console.error('Failed to fetch logs', e);
+      }
+    };
+
+    fetchLogs();
+    const interval = setInterval(fetchLogs, 3000);
+    return () => clearInterval(interval);
+  }, []);
+
+  const getStatusColor = (status: ScanLog['status']) => {
+    switch (status) {
+      case 'success': return 'text-emerald-600';
+      case 'error': return 'text-red-600';
+      case 'retrying': return 'text-amber-600';
+      default: return 'text-zinc-400';
+    }
+  };
+
+  return (
+    <div className="flex-1 max-w-2xl h-9 bg-white border border-zinc-200 rounded-xl overflow-hidden relative flex items-center px-3 shadow-sm group">
+      <div className="flex items-center gap-2 shrink-0 mr-3 border-r border-zinc-100 pr-3 bg-white z-10">
+        <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></div>
+        <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-tighter">LOGS</span>
+      </div>
+      <div className="flex-1 overflow-hidden relative h-full flex items-center">
+        <div className="animate-marquee pause flex gap-12 items-center">
+           {logs.length === 0 ? (
+             <span className="text-[11px] text-zinc-400 italic">Đang chờ dữ liệu...</span>
+           ) : (
+             // Duplicate logs to ensure seamless loop
+             [...logs, ...logs].map((log, idx) => (
+               <div key={`${log.id}-${idx}`} className="flex items-center gap-2 text-[11px] whitespace-nowrap">
+                 <span className="text-zinc-400 font-mono">[{new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}]</span>
+                 <span className={`${getStatusColor(log.status)} font-bold uppercase text-[9px]`}>{log.status}</span>
+                 <span className="text-zinc-600 font-medium">@{log.channelId}: {log.message}</span>
+               </div>
+             ))
+           )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function MainApp({ username, onLogout }: { username: string, onLogout: () => void }) {
   const [channels, setChannels] = useState<Channel[]>([]);
   const [filter, setFilter] = useState<'all' | 'live' | 'off'>('all');
@@ -755,7 +820,10 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
           {/* Channels List */}
           <div className="lg:col-span-3 xl:col-span-4 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <h2 className="text-lg font-semibold">Danh sách kênh ({channels.length})</h2>
+              <div className="flex items-center gap-4 flex-1">
+                <h2 className="text-lg font-semibold whitespace-nowrap">Danh sách kênh ({channels.length})</h2>
+                <RealTimeLogConsole />
+              </div>
               <div className="flex flex-wrap items-center gap-4">
                 <div className="flex bg-zinc-100 p-1 rounded-lg">
                   <button
