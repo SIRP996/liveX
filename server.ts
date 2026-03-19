@@ -489,15 +489,6 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
     }
     
     const html = response.data;
-    if (html.includes('room_id') && html.includes('live_room')) {
-       // Try to extract viewer count from HTML if SIGI_STATE fails
-       const match = html.match(/"userCount":(\d+)/) || html.match(/"totalUser":(\d+)/) || html.match(/"user_count":(\d+)/) || html.match(/"viewer_count":(\d+)/);
-       if (match && match[1]) {
-         viewerCount = parseInt(match[1], 10);
-       }
-       return { isLive: true, coverUrl: null, title: '', viewerCount: viewerCount };
-    }
-
     if (html.includes('verify-page') || html.includes('captcha') || html.includes('Access Denied')) {
        return { isLive: false, viewerCount: 0, error: true };
     }
@@ -885,13 +876,14 @@ const authenticate = async (req: any, res: any, next: any) => {
 
     const decodedHeader = jwt.decode(token, { complete: true });
     
-    // Fallback for old custom JWT tokens (non-guest)
+    // Fallback for custom JWT tokens (non-guest or regular users with long-lived tokens)
     if (!decodedHeader || typeof decodedHeader === 'string' || !decodedHeader.header.kid) {
       try {
         const decoded: any = jwt.verify(token, JWT_SECRET);
         req.user = decoded;
         return next();
-      } catch (e) {
+      } catch (e: any) {
+        console.warn(`Auth failed: Invalid custom JWT token: ${e.message}`);
         return res.status(401).json({ error: 'Invalid token' });
       }
     }
@@ -903,14 +895,21 @@ const authenticate = async (req: any, res: any, next: any) => {
     
     const publicKey = firebasePublicKeys[kid];
     if (!publicKey) {
+      console.warn(`Auth failed: No public key found for kid: ${kid}`);
       return res.status(401).json({ error: 'Invalid token signature' });
     }
 
-    const decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] }) as any;
-    req.user = { username: decoded.email, uid: decoded.user_id };
-    next();
-  } catch (e) {
-    res.status(401).json({ error: 'Invalid token' });
+    try {
+      const decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] }) as any;
+      req.user = { username: decoded.email, uid: decoded.user_id };
+      next();
+    } catch (e: any) {
+      console.warn(`Auth failed: Firebase token verification failed: ${e.message}`);
+      res.status(401).json({ error: 'Invalid token' });
+    }
+  } catch (e: any) {
+    console.error('Authentication error:', e);
+    res.status(401).json({ error: 'Authentication failed' });
   }
 };
 
@@ -969,7 +968,8 @@ app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
     
     // Create user in Firebase Auth
     const userCredential = await createUserWithEmailAndPassword(auth, username, password);
-    const token = await userCredential.user.getIdToken();
+    // Use a custom JWT with 7-day expiration instead of Firebase ID token (which expires in 1 hour)
+    const token = jwt.sign({ username, uid: userCredential.user.uid }, JWT_SECRET, { expiresIn: '7d' });
 
     // Create user document in Firestore
     const newUser: User = {
@@ -1005,7 +1005,8 @@ app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
     
     // Sign in with Firebase Auth
     const userCredential = await signInWithEmailAndPassword(auth, username, password);
-    const token = await userCredential.user.getIdToken();
+    // Use a custom JWT with 7-day expiration instead of Firebase ID token (which expires in 1 hour)
+    const token = jwt.sign({ username, uid: userCredential.user.uid }, JWT_SECRET, { expiresIn: '7d' });
 
     // Ensure user document exists in Firestore (for backward compatibility)
     try {
