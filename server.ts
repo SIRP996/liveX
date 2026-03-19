@@ -3,9 +3,8 @@ import TelegramBot from 'node-telegram-bot-api';
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import cors from 'cors';
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth, signInWithEmailAndPassword, createUserWithEmailAndPassword } from 'firebase/auth';
-import { getFirestore, collection, getDocs, doc, updateDoc, setDoc, deleteDoc, writeBatch, query, where, getDoc, setLogLevel } from 'firebase/firestore/lite';
+import sqlite3 from 'sqlite3';
+import { open } from 'sqlite';
 import dotenv from 'dotenv';
 import path from 'path';
 import jwt from 'jsonwebtoken';
@@ -13,9 +12,6 @@ import bcrypt from 'bcryptjs';
 import { HttpsProxyAgent } from 'https-proxy-agent';
 
 dotenv.config();
-
-// Suppress internal Firebase SDK errors like "Quota exceeded" to avoid log spam
-setLogLevel('silent');
 
 const app = express();
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -41,31 +37,46 @@ app.get('/api/system/stats', (req, res) => {
 
 const JWT_SECRET = process.env.JWT_SECRET || 'super-secret-key-12345';
 
-// Single Firebase Initialization
-const firebaseConfig = {
-  apiKey: "AIzaSyA5eKymLFvDLWXdodk-AvDP6P9dzjhmnI4",
-  authDomain: "tiktok-live-monitor-b6c4d.firebaseapp.com",
-  projectId: "tiktok-live-monitor-b6c4d",
-  storageBucket: "tiktok-live-monitor-b6c4d.firebasestorage.app",
-  messagingSenderId: "153939223108",
-  appId: "1:153939223108:web:657026dc9314e31dbb5211",
-  measurementId: "G-RZXTMEMNFM"
-};
-
+// SQLite Initialization
 let db: any = null;
-let auth: any = null;
-if (firebaseConfig.projectId && firebaseConfig.apiKey) {
-  try {
-    const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    db = getFirestore(firebaseApp);
-    auth = getAuth(firebaseApp);
-    console.log('Firebase initialized successfully.');
-  } catch (e) {
-    console.error('Firebase init error:', e);
+
+async function initDB() {
+  db = await open({
+    filename: path.join(process.cwd(), 'database.sqlite'),
+    driver: sqlite3.Database
+  });
+
+  await db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      username TEXT PRIMARY KEY,
+      passwordHash TEXT,
+      config TEXT
+    );
+    CREATE TABLE IF NOT EXISTS channels (
+      docId TEXT PRIMARY KEY,
+      id TEXT,
+      username TEXT,
+      isLive INTEGER,
+      addedAt TEXT,
+      isTemporary INTEGER,
+      viewerCount INTEGER,
+      lastCheckedAt TEXT,
+      lastLiveAt TEXT,
+      coverUrl TEXT,
+      title TEXT,
+      offlineStrikes INTEGER,
+      sessions TEXT
+    );
+  `);
+  console.log('SQLite database initialized successfully.');
+  
+  if (!process.env.VERCEL) {
+    // Initialize services after DB is ready
+    setTimeout(initAllServices, 2000);
   }
-} else {
-  console.warn('Firebase configuration is missing.');
 }
+
+initDB().catch(console.error);
 
 interface UserConfig {
   telegramBotToken: string;
@@ -110,9 +121,6 @@ async function initUserService(username: string, config: UserConfig) {
   const oldToken = existingService?.token;
   const newToken = config.telegramBotToken;
 
-  // ... (rest of the function)
-
-  // We don't stop polling if the token is still used by other users
   if (oldToken && oldToken !== newToken) {
     let isUsedByOthers = false;
     for (const [u, s] of userServices.entries()) {
@@ -150,11 +158,10 @@ async function initUserService(username: string, config: UserConfig) {
         bot.onText(/\/check/, async (msg) => {
           const chatIdStr = msg.chat.id.toString();
           if (!db) {
-            bot?.sendMessage(msg.chat.id, 'Firebase is not configured on the server.');
+            bot?.sendMessage(msg.chat.id, 'Database is not configured on the server.');
             return;
           }
           
-          // Find users matching this chat ID and bot
           const users = [];
           for (const [u, s] of userServices.entries()) {
             if (s.bot === bot && s.chatId === chatIdStr) {
@@ -166,12 +173,8 @@ async function initUserService(username: string, config: UserConfig) {
 
           for (const u of users) {
             try {
-              const q = query(collection(db, 'channels'), where('username', '==', u), where('isLive', '==', true));
-              const querySnapshot = await getDocs(q);
-              const liveChannels: string[] = [];
-              querySnapshot.forEach((doc) => {
-                liveChannels.push(doc.data().id);
-              });
+              const rows = await db.all('SELECT id FROM channels WHERE username = ? AND isLive = 1', [u]);
+              const liveChannels = rows.map((r: any) => r.id);
 
               if (liveChannels.length > 0) {
                 bot?.sendMessage(msg.chat.id, `Các kênh đang live (User: ${u}):\n${liveChannels.join('\n')}`);
@@ -213,10 +216,7 @@ async function initUserService(username: string, config: UserConfig) {
     }
   }
 
-  // Filter out dead proxies and provided proxies
   let userProxies = (config.proxies && config.proxies.length > 0) ? config.proxies : (config.useSystemProxies ? DEFAULT_PROXIES : []);
-  
-  // Remove known dead proxies from the list
   userProxies = userProxies.filter(p => !DEAD_PROXIES.some(dead => p.includes(dead.split('@').pop()!)));
 
   userServices.set(username, { 
@@ -235,12 +235,10 @@ async function sendZaloMessage(token: string, userId: string, text: string) {
   console.log(`Attempting to send Zalo message to ${userId} using token ${token.substring(0, 10)}...`);
   try {
     const url = `https://bot-api.zaloplatforms.com/bot${token}/sendMessage`;
-    // Try standard Bot API payload
     await axios.post(url, {
       to: userId,
       text: text
     }).catch(async (err) => {
-      // If failed, try OA-style payload just in case
       console.warn(`Zalo sendMessage failed for ${userId} with standard payload:`, err.response?.data || err.message);
       console.log('Trying OA-style payload...');
       return axios.post(url, {
@@ -254,20 +252,15 @@ async function sendZaloMessage(token: string, userId: string, text: string) {
   }
 }
 
-// Zalo Webhook to help users find their ID
 app.all(['/api/zalo/webhook', '/api/zalo/webhook/:identifier'], async (req: any, res: any) => {
-  // Log every single hit to this endpoint to debug
   console.log(`[Zalo Webhook] ${req.method} hit from ${req.ip}`);
   
-  // Handle Zalo's potential verification/challenge request
   if (req.method === 'GET') {
     return res.status(200).send(req.query.challenge || 'Zalo Webhook Active');
   }
 
-  // Respond to Zalo immediately to prevent timeout
   res.status(200).json({ error: 0, message: 'Success', ok: true });
 
-  // Process data in background
   const data = req.body;
   const secretToken = req.headers['x-zalo-secret-token'] || data?.secret_token;
   
@@ -278,35 +271,34 @@ app.all(['/api/zalo/webhook', '/api/zalo/webhook/:identifier'], async (req: any,
   if (senderId && db) {
     try {
       let targetUsername = '';
-      const usersRef = collection(db, 'users');
-      const querySnapshot = await getDocs(query(usersRef));
+      const users = await db.all('SELECT * FROM users');
       
       const sanitizedSecret = secretToken ? String(secretToken).replace(/:/g, '_') : null;
 
-      for (const userDoc of querySnapshot.docs) {
-        const userData = userDoc.data();
-        const userToken = userData.config?.zaloBotToken;
+      for (const userRow of users) {
+        const config = JSON.parse(userRow.config || '{}');
+        const userToken = config.zaloBotToken;
         if (userToken) {
           const sanitizedUserToken = userToken.replace(/:/g, '_');
-          // Match by secret token OR if the payload contains the bot token
           if (sanitizedSecret === sanitizedUserToken || userToken === secretToken || JSON.stringify(data).includes(userToken)) {
-            targetUsername = userDoc.id;
+            targetUsername = userRow.username;
             break;
           }
         }
       }
 
       if (targetUsername) {
-        await updateDoc(doc(db, 'users', targetUsername), {
-          'config.lastZaloUserId': senderId
-        });
-        console.log(`[Zalo Webhook] SUCCESS: Updated ID ${senderId} for ${targetUsername}`);
-        
-        // Optional: send confirmation back to user
-        const userSnap = await getDoc(doc(db, 'users', targetUsername));
-        const token = userSnap.data()?.config?.zaloBotToken;
-        if (token) {
-          await sendZaloMessage(token, senderId, `Đã nhận diện được ID của bạn: ${senderId}. Hãy quay lại ứng dụng để hoàn tất cấu hình.`);
+        const userRow = await db.get('SELECT config FROM users WHERE username = ?', [targetUsername]);
+        if (userRow) {
+          const config = JSON.parse(userRow.config || '{}');
+          config.lastZaloUserId = senderId;
+          await db.run('UPDATE users SET config = ? WHERE username = ?', [JSON.stringify(config), targetUsername]);
+          console.log(`[Zalo Webhook] SUCCESS: Updated ID ${senderId} for ${targetUsername}`);
+          
+          const token = config.zaloBotToken;
+          if (token) {
+            await sendZaloMessage(token, senderId, `Đã nhận diện được ID của bạn: ${senderId}. Hãy quay lại ứng dụng để hoàn tất cấu hình.`);
+          }
         }
       }
     } catch (e) {
@@ -318,19 +310,14 @@ app.all(['/api/zalo/webhook', '/api/zalo/webhook/:identifier'], async (req: any,
 async function initAllServices() {
   if (!db) return;
   try {
-    const querySnapshot = await getDocs(collection(db, 'users'));
-    querySnapshot.forEach((docSnap) => {
-      const userData = docSnap.data() as User;
-      initUserService(userData.username, userData.config || { telegramBotToken: '', telegramChatId: '' });
-    });
+    const users = await db.all('SELECT * FROM users');
+    for (const userRow of users) {
+      const config = JSON.parse(userRow.config || '{}');
+      await initUserService(userRow.username, config);
+    }
   } catch (error) {
     console.error('Error initializing all services:', error);
   }
-}
-
-if (!process.env.VERCEL) {
-  // Initialize services after a short delay to ensure DB is ready
-  setTimeout(initAllServices, 2000);
 }
 
 const userAgents = [
@@ -341,9 +328,7 @@ const userAgents = [
   'Mozilla/5.0 (AppleWebKit/537.36; Chrome/122.0.0.0; Mobile; rv:123.0) Gecko/20100101 Firefox/123.0'
 ];
 
-// TikTok Scraper
 async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?: string): Promise<any> {
-  // Sanitize username: remove spaces, special characters that shouldn't be in a TikTok handle
   const cleanUsername = username.trim().split(' ')[0].replace(/[^a-zA-Z0-9._-]/g, '');
   
   if (!cleanUsername || cleanUsername.length < 2) {
@@ -376,11 +361,6 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
       }
     }
 
-    if (!useProxy && retryCount < 5 && ownerUsername) {
-       // If user has no proxies but we are retrying, maybe try a different approach or just direct
-    }
-    
-    // If we've exhausted retries with proxies, try one last time with direct connection
     if (retryCount === 5) {
       console.log(`Exhausted proxy retries for ${cleanUsername}, trying direct connection...`);
       agent = null;
@@ -425,16 +405,21 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
       return { isLive: false, viewerCount: 0 };
     }
     
+    // Check if TikTok redirected us to a different user's live stream
+    const finalUrl = response.request?.res?.responseUrl || response.config?.url || '';
+    if (finalUrl && !finalUrl.toLowerCase().includes(cleanUsername.toLowerCase())) {
+      console.log(`Redirected from ${cleanUsername} to ${finalUrl}, assuming not live.`);
+      return { isLive: false, viewerCount: 0 };
+    }
+
     const $ = cheerio.load(response.data);
     let sigiStateStr = $('#SIGI_STATE').html();
     
-    // Fallback for newer TikTok structure
     if (!sigiStateStr) {
       const rehydrationData = $('#__UNIVERSAL_DATA_FOR_REHYDRATION__').html();
       if (rehydrationData) {
         try {
           const parsed = JSON.parse(rehydrationData);
-          // Try multiple possible paths for live data
           const liveData = parsed?.__DEFAULT_SCOPE__?.['webapp.live-detail'] || 
                            parsed?.__DEFAULT_SCOPE__?.['webapp.user-detail']?.userInfo?.liveRoom;
           
@@ -443,8 +428,10 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
                            liveData.liveRoomUserInfo?.liveRoom?.status === 2 ||
                            liveData.status === 2;
             
-            if (isLive) {
-              const userInfo = liveData.liveRoomUserInfo || liveData;
+            const userInfo = liveData.liveRoomUserInfo || liveData;
+            const liveUsername = userInfo?.user?.uniqueId || userInfo?.user?.secUid || '';
+            
+            if (isLive && (!liveUsername || liveUsername.toLowerCase() === cleanUsername.toLowerCase())) {
               return {
                 isLive: true,
                 coverUrl: userInfo?.liveRoom?.coverUrl || userInfo?.user?.avatarLarger || userInfo?.coverUrl || null,
@@ -465,8 +452,9 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
       const userInfo = sigiState?.LiveRoom?.liveRoomUserInfo;
       
       const isLive = userInfo?.user?.status === 2 || userInfo?.liveRoom?.status === 2;
+      const liveUsername = userInfo?.user?.uniqueId || '';
       
-      if (isLive) {
+      if (isLive && (!liveUsername || liveUsername.toLowerCase() === cleanUsername.toLowerCase())) {
         if (userInfo?.liveRoom?.userCount) viewerCount = userInfo.liveRoom.userCount;
         else if (userInfo?.liveRoom?.liveRoomStats?.userCount) viewerCount = userInfo.liveRoom.liveRoomStats.userCount;
         else if (userInfo?.stats?.userCount) viewerCount = userInfo.stats.userCount;
@@ -499,7 +487,6 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
       return { isLive: false, viewerCount: 0 };
     }
     
-    // If it's a proxy/network error and we have retries left, try with next proxy
     if (retryCount < 6 && (
       !error.response || 
       error.response.status >= 500 || 
@@ -521,22 +508,18 @@ async function checkTikTokLive(username: string, retryCount = 0, ownerUsername?:
   }
 }
 
-// Background Worker
 const CHECK_INTERVAL = 60 * 1000;
-
 let lastCheckedDay = new Date().getDate();
 
-// --- CACHE SYSTEM ---
 const channelsCache = new Map<string, any[]>();
 const channelsCacheTime = new Map<string, number>();
-const temporaryChannels = new Map<string, any[]>(); // RAM-only channels
-const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const temporaryChannels = new Map<string, any[]>();
+const CACHE_TTL = 5 * 60 * 1000;
 
 let usersCache: string[] = [];
 let usersCacheTime = 0;
-const USERS_CACHE_TTL = 60 * 60 * 1000; // 1 hour
+const USERS_CACHE_TTL = 60 * 60 * 1000;
 
-// --- SYSTEM LOGS ---
 interface ScanLog {
   id: string;
   channelId: string;
@@ -567,32 +550,31 @@ function addLog(username: string, channelId: string, status: ScanLog['status'], 
 async function getUserChannels(username: string): Promise<any[]> {
   if (!db || username.startsWith('guest_')) return temporaryChannels.get(username) || [];
   const now = Date.now();
-  let firebaseChannels: any[] = [];
+  let sqliteChannels: any[] = [];
   
   if (channelsCache.has(username) && channelsCacheTime.has(username) && (now - channelsCacheTime.get(username)! < CACHE_TTL)) {
-    firebaseChannels = channelsCache.get(username)!;
+    sqliteChannels = channelsCache.get(username)!;
   } else {
     try {
-      const q = query(collection(db, 'channels'), where('username', '==', username));
-      const querySnapshot = await getDocs(q);
-      const channels: any[] = [];
-      querySnapshot.forEach((doc) => {
-        channels.push({ docId: doc.id, ...doc.data() });
-      });
+      const rows = await db.all('SELECT * FROM channels WHERE username = ?', [username]);
+      const channels = rows.map((r: any) => ({
+        ...r,
+        isLive: !!r.isLive,
+        isTemporary: !!r.isTemporary,
+        sessions: r.sessions ? JSON.parse(r.sessions) : []
+      }));
       
       channelsCache.set(username, channels);
       channelsCacheTime.set(username, now);
-      firebaseChannels = channels;
+      sqliteChannels = channels;
     } catch (error: any) {
-      if (!error.message?.includes('Quota exceeded')) {
-        console.error(`Error fetching channels for ${username}:`, error);
-      }
-      firebaseChannels = channelsCache.get(username) || []; // Fallback to stale cache if error
+      console.error(`Error fetching channels for ${username}:`, error);
+      sqliteChannels = channelsCache.get(username) || [];
     }
   }
   
   const tempChannels = temporaryChannels.get(username) || [];
-  return [...firebaseChannels, ...tempChannels];
+  return [...sqliteChannels, ...tempChannels];
 }
 
 async function getAllUsers(): Promise<string[]> {
@@ -603,72 +585,61 @@ async function getAllUsers(): Promise<string[]> {
   if (!db) return Array.from(activeUsers);
   const now = Date.now();
   
-  let firebaseUsers: string[] = [];
+  let sqliteUsers: string[] = [];
   if (usersCache.length > 0 && now - usersCacheTime < USERS_CACHE_TTL) {
-    firebaseUsers = usersCache;
+    sqliteUsers = usersCache;
   } else {
     try {
-      const querySnapshot = await getDocs(collection(db, 'users'));
-      usersCache = querySnapshot.docs.map(doc => doc.id);
+      const rows = await db.all('SELECT username FROM users');
+      usersCache = rows.map((r: any) => r.username);
       usersCacheTime = now;
-      firebaseUsers = usersCache;
+      sqliteUsers = usersCache;
     } catch (error: any) {
-      if (!error.message?.includes('Quota exceeded')) {
-        console.error('Error fetching users:', error);
-      }
-      firebaseUsers = usersCache; // Fallback to stale
+      console.error('Error fetching users:', error);
+      sqliteUsers = usersCache;
     }
   }
 
-  // Combine firebase users with active users (like guests)
-  const allUsers = new Set([...firebaseUsers, ...activeUsers]);
+  const allUsers = new Set([...sqliteUsers, ...activeUsers]);
   return Array.from(allUsers);
 }
-// --- END CACHE SYSTEM ---
 
 async function checkChannelsForUser(username: string, shouldClearLogs: boolean = false) {
   if (!db || !username) return;
   let service = userServices.get(username);
   
-  // If service is not in memory (e.g. serverless environment), fetch from DB
   if (!service) {
     try {
-      const userDoc = await getDoc(doc(db, 'users', username));
-      if (userDoc.exists()) {
-        const userData = userDoc.data() as User;
-        if (userData.config && userData.config.telegramBotToken) {
-          await initUserService(username, userData.config);
+      const userRow = await db.get('SELECT config FROM users WHERE username = ?', [username]);
+      if (userRow) {
+        const config = JSON.parse(userRow.config || '{}');
+        if (config.telegramBotToken) {
+          await initUserService(username, config);
           service = userServices.get(username);
         }
       }
     } catch (error: any) {
-      if (!error.message?.includes('Quota exceeded')) {
-        console.error(`Error fetching user config for ${username}:`, error);
-      }
+      console.error(`Error fetching user config for ${username}:`, error);
     }
   }
-
-  // Telegram service is optional for checking, only required for notifications
-  const canNotify = service && service.bot && service.chatId;
 
   try {
     const channels = await getUserChannels(username);
 
     const safeUpdateDoc = async (channelDocId: string, data: any) => {
       try {
-        await updateDoc(doc(db, 'channels', channelDocId), data);
+        const keys = Object.keys(data);
+        if (keys.length === 0) return;
+        const values = Object.values(data).map(v => typeof v === 'object' ? JSON.stringify(v) : (typeof v === 'boolean' ? (v ? 1 : 0) : v));
+        const setClause = keys.map(k => `${k} = ?`).join(', ');
+        await db.run(`UPDATE channels SET ${setClause} WHERE docId = ?`, [...values, channelDocId]);
       } catch (error: any) {
-        if (error.message?.includes('Quota exceeded')) {
-          console.warn(`Firestore quota exceeded during update for ${channelDocId}, applying to RAM only`);
-        } else {
-          throw error;
-        }
+        console.error(`SQLite update error for ${channelDocId}:`, error);
       }
     };
 
     const processChannel = async (channel: any) => {
       addLog(username, channel.id, 'info', `Bắt đầu quét kênh @${channel.id}...`);
-      // Add a random delay to avoid rate limiting (2-5 seconds)
       await new Promise(resolve => setTimeout(resolve, 2000 + Math.random() * 3000));
       
       let sessions = channel.sessions || [];
@@ -701,7 +672,7 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
         addLog(username, channel.id, 'success', `Kênh @${channel.id} vừa bắt đầu LIVE!`);
         console.log(`${channel.id} is now LIVE for ${username}!`);
         
-        sessions.push(Date.now()); // Log start time
+        sessions.push(Date.now());
         
         updateData = {
           ...updateData,
@@ -727,7 +698,6 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
           service.bot.sendMessage(service.chatId, message, { parse_mode: 'HTML' }).catch(e => console.error(e));
         }
 
-        // Send Zalo notification
         if (service?.zaloToken && service?.zaloUserId) {
           const zaloMessage = `🔴 Kênh ${channel.id} đang LIVE!\n${status.title ? `Tiêu đề: ${status.title}\n` : ''}Người xem: ${status.viewerCount || 0}\nLink: https://www.tiktok.com/@${channel.id}/live`;
           sendZaloMessage(service.zaloToken, service.zaloUserId, zaloMessage);
@@ -748,10 +718,9 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
       else if (!status.isLive && channel.isLive) {
         const strikes = (channel.offlineStrikes || 0) + 1;
         addLog(username, channel.id, 'info', `Kênh @${channel.id} tạm thời Offline (Lần ${strikes}/3).`);
-        // Require 3 consecutive offline checks (3 minutes) before marking as offline
         if (strikes >= 3) {
           console.log(`${channel.id} is now OFFLINE for ${username}.`);
-          sessions.push(Date.now()); // Log end time
+          sessions.push(Date.now());
           
           updateData = {
             ...updateData,
@@ -785,7 +754,6 @@ async function checkChannelsForUser(username: string, shouldClearLogs: boolean =
 
       if (didUpdate) {
         Object.assign(channel, updateData);
-        // Update cache if it exists
         if (channelsCache.has(username)) {
           const cachedChannels = channelsCache.get(username)!;
           const index = cachedChannels.findIndex(c => c.docId === channel.docId);
@@ -835,9 +803,7 @@ async function checkAllChannels() {
       await checkChannelsForUser(username, shouldClearLogs);
     }
   } catch (error: any) {
-    if (!error.message?.includes('Quota exceeded')) {
-      console.error('Error fetching users in checkAllChannels:', error);
-    }
+    console.error('Error fetching users in checkAllChannels:', error);
   }
 }
 
@@ -845,70 +811,17 @@ if (!process.env.VERCEL) {
   setInterval(checkAllChannels, CHECK_INTERVAL);
 }
 
-let firebasePublicKeys: Record<string, string> = {};
-
-const fetchFirebasePublicKeys = async () => {
-  try {
-    const res = await axios.get('https://www.googleapis.com/robot/v1/metadata/x509/securetoken@system.gserviceaccount.com');
-    firebasePublicKeys = res.data;
-  } catch (e) {
-    console.error('Failed to fetch Firebase public keys', e);
-  }
-};
-
-// Auth Middleware
 const authenticate = async (req: any, res: any, next: any) => {
   const authHeader = req.headers.authorization;
   if (!authHeader) return res.status(401).json({ error: 'Unauthorized' });
 
   const token = authHeader.split(' ')[1];
   try {
-    // Check if it's a guest token first (custom JWT)
-    try {
-      const decoded: any = jwt.verify(token, JWT_SECRET);
-      if (decoded.isGuest) {
-        req.user = decoded;
-        return next();
-      }
-    } catch (e) {
-      // Not a valid guest token, continue to Firebase check
-    }
-
-    const decodedHeader = jwt.decode(token, { complete: true });
-    
-    // Fallback for custom JWT tokens (non-guest or regular users with long-lived tokens)
-    if (!decodedHeader || typeof decodedHeader === 'string' || !decodedHeader.header.kid) {
-      try {
-        const decoded: any = jwt.verify(token, JWT_SECRET);
-        req.user = decoded;
-        return next();
-      } catch (e: any) {
-        console.warn(`Auth failed: Invalid custom JWT token: ${e.message}`);
-        return res.status(401).json({ error: 'Invalid token' });
-      }
-    }
-
-    const kid = decodedHeader.header.kid;
-    if (!firebasePublicKeys[kid]) {
-      await fetchFirebasePublicKeys();
-    }
-    
-    const publicKey = firebasePublicKeys[kid];
-    if (!publicKey) {
-      console.warn(`Auth failed: No public key found for kid: ${kid}`);
-      return res.status(401).json({ error: 'Invalid token signature' });
-    }
-
-    try {
-      const decoded = jwt.verify(token, publicKey, { algorithms: ['RS256'] }) as any;
-      req.user = { username: decoded.email, uid: decoded.user_id };
-      next();
-    } catch (e: any) {
-      console.warn(`Auth failed: Firebase token verification failed: ${e.message}`);
-      res.status(401).json({ error: 'Invalid token' });
-    }
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
   } catch (e: any) {
-    console.error('Authentication error:', e);
+    console.error('Authentication error:', e.message);
     res.status(401).json({ error: 'Authentication failed' });
   }
 };
@@ -926,70 +839,37 @@ app.post(['/api/zalo/set-webhook', '/zalo/set-webhook'], authenticate, async (re
 
   try {
     const baseUrl = process.env.APP_URL || `https://${req.get('host')}`;
-    // Use the simplest possible URL to avoid Zalo validation issues
     const webhookUrl = `${baseUrl}/api/zalo/webhook`;
-    
     const entrypoint = `https://bot-api.zaloplatforms.com/bot${token}/setWebhook`;
-    
-    console.log(`[Zalo] Setting webhook for ${username} using token: ${token.substring(0, 10)}...`);
-    console.log(`[Zalo] Webhook URL: ${webhookUrl}`);
     
     const response = await axios.post(entrypoint, {
       url: webhookUrl,
-      secret_token: token.replace(/:/g, '_') // Zalo doesn't allow colons in secret_token
+      secret_token: token.replace(/:/g, '_')
     });
 
-    console.log(`[Zalo] setWebhook response:`, JSON.stringify(response.data));
-
     if (response.data && (response.data.error === 0 || response.data.ok)) {
-      res.json({ 
-        ok: true, 
-        webhookUrl,
-        data: response.data 
-      });
+      res.json({ ok: true, webhookUrl, data: response.data });
     } else {
       res.json({ ok: false, error: response.data?.message || 'Zalo returned an error', details: response.data });
     }
   } catch (error: any) {
-    console.error('[Zalo] Failed to set webhook:', error.response?.data || error.message);
-    res.status(500).json({ 
-      error: 'Failed to set Zalo webhook', 
-      details: error.response?.data || error.message 
-    });
+    res.status(500).json({ error: 'Failed to set Zalo webhook', details: error.response?.data || error.message });
   }
 });
 
-// Auth Routes
 app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
   try {
-    if (!db || !auth) return res.status(500).json({ error: 'Firebase not initialized' });
+    if (!db) return res.status(500).json({ error: 'Database not initialized' });
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Email and password required' });
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
     
-    // Create user in Firebase Auth
-    const userCredential = await createUserWithEmailAndPassword(auth, username, password);
-    // Use a custom JWT with 7-day expiration instead of Firebase ID token (which expires in 1 hour)
-    const token = jwt.sign({ username, uid: userCredential.user.uid }, JWT_SECRET, { expiresIn: '7d' });
+    const existing = await db.get('SELECT username FROM users WHERE username = ?', [username]);
+    if (existing) return res.status(400).json({ error: 'Username already exists' });
 
-    // Create user document in Firestore
-    const newUser: User = {
-      username,
-      passwordHash: '', // No longer needed
-      config: {
-        telegramBotToken: '',
-        telegramChatId: ''
-      }
-    };
-    try {
-      await setDoc(doc(db, 'users', username), newUser);
-    } catch (firestoreError: any) {
-      if (firestoreError.message?.includes('Quota exceeded')) {
-        console.warn('Firestore quota exceeded during register, skipping user doc creation');
-      } else {
-        throw firestoreError;
-      }
-    }
-
+    const hash = await bcrypt.hash(password, 10);
+    await db.run('INSERT INTO users (username, passwordHash, config) VALUES (?, ?, ?)', [username, hash, '{}']);
+    
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, username });
   } catch (error: any) {
     console.error('Registration error:', error);
@@ -999,49 +879,30 @@ app.post(['/api/auth/register', '/auth/register'], async (req, res) => {
 
 app.post(['/api/auth/login', '/auth/login'], async (req, res) => {
   try {
-    if (!db || !auth) return res.status(500).json({ error: 'Firebase not initialized' });
+    if (!db) return res.status(500).json({ error: 'Database not initialized' });
     const { username, password } = req.body;
-    if (!username || !password) return res.status(400).json({ error: 'Email and password required' });
+    if (!username || !password) return res.status(400).json({ error: 'Username and password required' });
     
-    // Sign in with Firebase Auth
-    const userCredential = await signInWithEmailAndPassword(auth, username, password);
-    // Use a custom JWT with 7-day expiration instead of Firebase ID token (which expires in 1 hour)
-    const token = jwt.sign({ username, uid: userCredential.user.uid }, JWT_SECRET, { expiresIn: '7d' });
+    const user = await db.get('SELECT * FROM users WHERE username = ?', [username]);
+    if (!user) return res.status(400).json({ error: 'Invalid credentials' });
 
-    // Ensure user document exists in Firestore (for backward compatibility)
-    try {
-      const userDoc = await getDoc(doc(db, 'users', username));
-      if (!userDoc.exists()) {
-        await setDoc(doc(db, 'users', username), {
-          username,
-          passwordHash: '',
-          config: { telegramBotToken: '', telegramChatId: '' }
-        });
-      }
-    } catch (firestoreError: any) {
-      if (firestoreError.message?.includes('Quota exceeded')) {
-        console.warn('Firestore quota exceeded during login, skipping user doc check');
-      } else {
-        throw firestoreError;
-      }
-    }
+    const match = await bcrypt.compare(password, user.passwordHash);
+    if (!match) return res.status(400).json({ error: 'Invalid credentials' });
 
+    const token = jwt.sign({ username }, JWT_SECRET, { expiresIn: '7d' });
     res.json({ token, username });
   } catch (error: any) {
     console.error('Login error:', error);
-    res.status(400).json({ error: 'Invalid credentials', details: error.message || String(error) });
+    res.status(400).json({ error: 'Login failed', details: error.message || String(error) });
   }
 });
 
 app.all(['/api/auth/guest', '/auth/guest'], async (req, res) => {
-  console.log(`${req.method} Guest login request received from ${req.ip}`);
   try {
     const guestId = `guest_${Math.random().toString(36).substring(2, 9)}`;
     const token = jwt.sign({ username: guestId, isGuest: true }, JWT_SECRET, { expiresIn: '7d' });
-    console.log(`Guest session created: ${guestId}`);
     res.json({ token, username: guestId });
   } catch (error: any) {
-    console.error('Guest login error:', error);
     res.status(500).json({ error: 'Failed to create guest session' });
   }
 });
@@ -1050,7 +911,6 @@ app.get(['/api/auth/me', '/auth/me'], authenticate, (req: any, res: any) => {
   res.json({ username: req.user.username });
 });
 
-// API Routes
 app.get(['/api/config', '/config'], authenticate, async (req: any, res: any) => {
   if (req.user.isGuest) {
     const service = userServices.get(req.user.username);
@@ -1061,15 +921,10 @@ app.get(['/api/config', '/config'], authenticate, async (req: any, res: any) => 
   }
   if (!db) return res.status(500).json({ error: 'Database not initialized' });
   try {
-    const userDoc = await getDoc(doc(db, 'users', req.user.username));
-    if (!userDoc.exists()) return res.status(404).json({ error: 'User not found' });
-    res.json(userDoc.data().config || {});
+    const userRow = await db.get('SELECT config FROM users WHERE username = ?', [req.user.username]);
+    if (!userRow) return res.status(404).json({ error: 'User not found' });
+    res.json(JSON.parse(userRow.config || '{}'));
   } catch (error: any) {
-    if (error.message?.includes('Quota exceeded')) {
-      console.warn('Firestore quota exceeded during config fetch, returning empty config');
-      return res.json({});
-    }
-    console.error('Error fetching config:', error);
     res.status(500).json({ error: 'Failed to fetch config' });
   }
 });
@@ -1081,29 +936,17 @@ app.post(['/api/config', '/config'], authenticate, async (req: any, res: any) =>
     
     if (!req.user.isGuest) {
       if (!db) return res.status(500).json({ error: 'Database not initialized' });
-      try {
-        await setDoc(doc(db, 'users', username), {
-          config: newConfig
-        }, { merge: true });
-      } catch (firestoreError: any) {
-        if (firestoreError.message?.includes('Quota exceeded')) {
-          console.warn('Firestore quota exceeded during config save, applying to RAM only');
-        } else {
-          throw firestoreError;
-        }
-      }
+      await db.run('UPDATE users SET config = ? WHERE username = ?', [JSON.stringify(newConfig), username]);
     }
     
     await initUserService(username, newConfig);
     
-    // Add to usersCache if not present
     if (usersCache.length > 0 && !usersCache.includes(username)) {
       usersCache.push(username);
     }
     
     res.json({ success: true });
   } catch (error) {
-    console.error('Failed to save config:', error);
     res.status(500).json({ error: 'Failed to save config' });
   }
 });
@@ -1111,7 +954,7 @@ app.post(['/api/config', '/config'], authenticate, async (req: any, res: any) =>
 app.get(['/api/config-status', '/config-status'], authenticate, (req: any, res: any) => {
   const service = userServices.get(req.user.username);
   res.json({
-    firebase: !!db,
+    firebase: !!db, // We keep the key 'firebase' for frontend compatibility, but it means SQLite DB
     telegramBot: !!service?.bot,
     telegramChatId: !!service?.chatId,
     zaloBot: !!service?.zaloToken,
@@ -1121,10 +964,7 @@ app.get(['/api/config-status', '/config-status'], authenticate, (req: any, res: 
 
 app.get(['/api/check-live', '/check-live'], authenticate, async (req: any, res: any) => {
   const { id } = req.query;
-  if (!id || typeof id !== 'string') {
-    return res.status(400).json({ error: 'Channel ID is required' });
-  }
-  
+  if (!id || typeof id !== 'string') return res.status(400).json({ error: 'Channel ID is required' });
   try {
     const status = await checkTikTokLive(id, 0, req.user.username);
     res.json(status);
@@ -1135,30 +975,20 @@ app.get(['/api/check-live', '/check-live'], authenticate, async (req: any, res: 
 
 app.get(['/api/cron', '/cron'], async (req: any, res: any) => {
   try {
-    // Run the background worker
     await checkAllChannels();
     res.json({ success: true, message: 'Cron job executed successfully' });
   } catch (error: any) {
-    console.error('Cron job failed:', error);
     res.status(500).json({ error: 'Cron job failed' });
   }
 });
 
 app.post(['/api/channels/refresh', '/channels/refresh'], authenticate, async (req: any, res: any) => {
   try {
-    // Force clear cache to fetch fresh data from DB
     channelsCache.delete(req.user.username);
     channelsCacheTime.delete(req.user.username);
-    
-    // Run the check asynchronously so we don't block the response
-    // The client will get updates via the regular polling
-    checkChannelsForUser(req.user.username, true).catch(err => {
-      console.error(`Background refresh error for ${req.user.username}:`, err);
-    });
-    
+    checkChannelsForUser(req.user.username, true).catch(err => console.error(err));
     res.json({ success: true, message: 'Đang quét lại danh sách kênh...' });
   } catch (error: any) {
-    console.error('Failed to refresh channels:', error);
     res.status(500).json({ error: 'Failed to refresh channels' });
   }
 });
@@ -1170,32 +1000,28 @@ app.post(['/api/channels/check-one', '/channels/check-one'], authenticate, async
   try {
     const status = await checkTikTokLive(channelId, 0, req.user.username);
     
-    // Update Firestore if not temporary
     if (docId && !docId.startsWith('temp_')) {
       const updateData: any = {
-        isLive: status.isLive,
+        isLive: status.isLive ? 1 : 0,
         viewerCount: status.viewerCount || 0,
         lastCheckedAt: new Date().toISOString()
       };
-      if (status.isLive) {
-        updateData.lastLiveAt = new Date().toISOString();
-      }
-      if (status.coverUrl) {
-        updateData.coverUrl = status.coverUrl;
-      }
+      if (status.isLive) updateData.lastLiveAt = new Date().toISOString();
+      if (status.coverUrl) updateData.coverUrl = status.coverUrl;
       
-      await updateDoc(doc(db, 'channels', docId), updateData);
+      const keys = Object.keys(updateData);
+      const values = Object.values(updateData);
+      const setClause = keys.map(k => `${k} = ?`).join(', ');
+      await db.run(`UPDATE channels SET ${setClause} WHERE docId = ?`, [...values, docId]);
       
-      // Update cache
       if (channelsCache.has(req.user.username)) {
         const cached = channelsCache.get(req.user.username)!;
         const idx = cached.findIndex(c => c.docId === docId);
         if (idx !== -1) {
-          cached[idx] = { ...cached[idx], ...updateData };
+          cached[idx] = { ...cached[idx], ...updateData, isLive: !!updateData.isLive };
         }
       }
     } else if (docId && docId.startsWith('temp_')) {
-      // Update temporary channels
       const temp = temporaryChannels.get(req.user.username) || [];
       const idx = temp.findIndex(c => c.docId === docId);
       if (idx !== -1) {
@@ -1212,7 +1038,6 @@ app.post(['/api/channels/check-one', '/channels/check-one'], authenticate, async
 
     res.json({ success: true, status });
   } catch (error: any) {
-    console.error('Failed to check individual channel:', error);
     res.status(500).json({ error: 'Failed to check channel' });
   }
 });
@@ -1222,9 +1047,6 @@ app.get(['/api/channels', '/channels'], authenticate, async (req: any, res: any)
     const channels = await getUserChannels(req.user.username);
     res.json(channels);
   } catch (error: any) {
-    if (!error.message?.includes('Quota exceeded')) {
-      console.error('Failed to fetch channels:', error);
-    }
     res.status(500).json({ error: 'Failed to fetch channels: ' + (error.message || error) });
   }
 });
@@ -1240,16 +1062,16 @@ app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any
     }
 
     const forceTemp = req.user.isGuest ? true : !!isTemporary;
-
+    const addedAt = new Date().toISOString();
+    let docId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    
     const newChannel = {
       id,
       username: req.user.username,
       isLive: false,
-      addedAt: new Date().toISOString(),
+      addedAt,
       isTemporary: forceTemp
     };
-    
-    let docId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     
     if (forceTemp) {
       if (!temporaryChannels.has(req.user.username)) {
@@ -1257,10 +1079,13 @@ app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any
       }
       temporaryChannels.get(req.user.username)!.push({ docId, ...newChannel });
     } else {
-      if (!db) return res.status(500).json({ error: 'Firebase not configured' });
-      const newDocRef = doc(collection(db, 'channels'));
-      docId = newDocRef.id;
-      await setDoc(newDocRef, newChannel);
+      if (!db) return res.status(500).json({ error: 'Database not configured' });
+      docId = `ch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      
+      await db.run(
+        'INSERT INTO channels (docId, id, username, isLive, addedAt, isTemporary, viewerCount, offlineStrikes, sessions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [docId, id, req.user.username, 0, addedAt, 0, 0, 0, '[]']
+      );
       
       if (channelsCache.has(req.user.username)) {
         channelsCache.get(req.user.username)!.push({ docId, ...newChannel });
@@ -1269,9 +1094,6 @@ app.post(['/api/channels', '/channels'], authenticate, async (req: any, res: any
     
     res.json({ success: true, channel: { docId, ...newChannel } });
   } catch (error: any) {
-    if (error.message?.includes('Quota exceeded')) {
-      return res.status(500).json({ error: 'Hết hạn mức Firebase (Quota exceeded). Vui lòng tích chọn "Thêm tạm thời" để tiếp tục sử dụng.' });
-    }
     res.status(500).json({ error: 'Failed to add channel' });
   }
 });
@@ -1286,46 +1108,36 @@ app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any
     
     const addedChannels = [];
     let addedCount = 0;
-    
     const forceTemp = req.user.isGuest ? true : !!isTemporary;
+    const addedAt = new Date().toISOString();
 
     const uniqueNewIds = [...new Set(
       ids.map(id => id.trim().replace(/^@/, ''))
          .filter(id => id && !existingIds.has(id))
     )];
 
-    const chunkSize = 400;
-    for (let i = 0; i < uniqueNewIds.length; i += chunkSize) {
-      const chunk = uniqueNewIds.slice(i, i + chunkSize);
-      let batch: any = null;
-      if (!forceTemp) {
-        if (!db) continue;
-        batch = writeBatch(db);
-      }
-      
-      for (const cleanId of chunk) {
-        const newChannel = {
-          id: cleanId,
-          username: req.user.username,
-          isLive: false,
-          addedAt: new Date().toISOString(),
-          isTemporary: forceTemp
-        };
-        
-        let docId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        if (!forceTemp) {
-          const newDocRef = doc(collection(db, 'channels'));
-          docId = newDocRef.id;
-          batch.set(newDocRef, newChannel);
+    if (!forceTemp && db) {
+      await db.exec('BEGIN TRANSACTION');
+      try {
+        for (const cleanId of uniqueNewIds) {
+          const docId = `ch_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          await db.run(
+            'INSERT INTO channels (docId, id, username, isLive, addedAt, isTemporary, viewerCount, offlineStrikes, sessions) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
+            [docId, cleanId, req.user.username, 0, addedAt, 0, 0, 0, '[]']
+          );
+          addedChannels.push({ docId, id: cleanId, username: req.user.username, isLive: false, addedAt, isTemporary: false });
+          addedCount++;
         }
-        
-        addedChannels.push({ docId, ...newChannel });
-        addedCount++;
+        await db.exec('COMMIT');
+      } catch (e) {
+        await db.exec('ROLLBACK');
+        throw e;
       }
-      
-      if (!forceTemp && batch) {
-        await batch.commit();
+    } else {
+      for (const cleanId of uniqueNewIds) {
+        const docId = `temp_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        addedChannels.push({ docId, id: cleanId, username: req.user.username, isLive: false, addedAt, isTemporary: true });
+        addedCount++;
       }
     }
     
@@ -1340,10 +1152,6 @@ app.post(['/api/channels/bulk', '/channels/bulk'], authenticate, async (req: any
     
     res.json({ success: true, addedCount, channels: addedChannels });
   } catch (error: any) {
-    if (error.message?.includes('Quota exceeded')) {
-      console.error('Failed to bulk add channels:', error.message, error.stack);
-      return res.status(500).json({ error: 'Hết hạn mức Firebase (Quota exceeded). Vui lòng tích chọn "Thêm tạm thời" để tiếp tục sử dụng.' });
-    }
     res.status(500).json({ error: 'Failed to bulk add channels: ' + error.message });
   }
 });
@@ -1363,11 +1171,11 @@ app.delete(['/api/channels/:docId', '/channels/:docId'], authenticate, async (re
       return res.status(403).json({ error: 'Guest cannot delete permanent channels' });
     }
 
-    if (!db) return res.status(500).json({ error: 'Firebase not configured' });
-    const docRef = doc(db, 'channels', docId);
-    const docSnap = await getDoc(docRef);
-    if (docSnap.exists() && docSnap.data().username === req.user.username) {
-      await deleteDoc(docRef);
+    if (!db) return res.status(500).json({ error: 'Database not configured' });
+    
+    const row = await db.get('SELECT username FROM channels WHERE docId = ?', [docId]);
+    if (row && row.username === req.user.username) {
+      await db.run('DELETE FROM channels WHERE docId = ?', [docId]);
       
       if (channelsCache.has(req.user.username)) {
         const channels = channelsCache.get(req.user.username)!;
@@ -1379,9 +1187,6 @@ app.delete(['/api/channels/:docId', '/channels/:docId'], authenticate, async (re
       res.status(403).json({ error: 'Unauthorized or not found' });
     }
   } catch (error: any) {
-    if (error.message?.includes('Quota exceeded')) {
-      return res.status(500).json({ error: 'Hết hạn mức Firebase (Quota exceeded). Không thể xoá kênh đã lưu.' });
-    }
     res.status(500).json({ error: 'Failed to delete channel' });
   }
 });
@@ -1411,7 +1216,6 @@ if (!process.env.VERCEL) {
   startServer();
 }
 
-// Global error handler to prevent HTML error pages
 app.use((err: any, req: any, res: any, next: any) => {
   console.error('Unhandled Express error:', err);
   res.status(500).json({ error: 'Internal server error', details: err.message });

@@ -344,14 +344,14 @@ function AuthScreen({ onLogin, onBack }: { onLogin: (username: string, token: st
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-zinc-700 mb-1">Email</label>
+            <label className="block text-sm font-medium text-zinc-700 mb-1">Tài khoản (ID chữ hoặc số)</label>
             <input
-              type="email"
+              type="text"
               required
               value={username}
               onChange={e => setUsername(e.target.value)}
               className="w-full px-4 py-3 rounded-xl border border-zinc-200 focus:outline-none focus:ring-2 focus:ring-emerald-500 transition-all"
-              placeholder="Nhập địa chỉ email"
+              placeholder="Nhập ID tài khoản của bạn"
             />
           </div>
           <div>
@@ -815,7 +815,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
                 Trạng thái hệ thống
               </h2>
               <p className="text-xs md:text-sm text-zinc-500">
-                {configStatus.firebase ? 'Hệ thống lưu trữ (Firebase) đang hoạt động bình thường.' : 'Vui lòng kiểm tra lại cấu hình Firebase.'}
+                {configStatus.firebase ? 'Hệ thống lưu trữ (SQLite) đang hoạt động bình thường.' : 'Vui lòng kiểm tra lại cấu hình SQLite.'}
               </p>
             </div>
             
@@ -823,7 +823,7 @@ function MainApp({ username, onLogout }: { username: string, onLogout: () => voi
               <MiniRAMMonitor />
               <div className="h-8 w-px bg-zinc-100 hidden md:block mx-2"></div>
               <div className="flex flex-wrap gap-2">
-                <StatusBadge label="Firebase" active={configStatus.firebase} />
+                <StatusBadge label="SQLite" active={configStatus.firebase} />
                 <StatusBadge label="Telegram Bot" active={configStatus.telegramBot} />
                 <StatusBadge label="Chat ID" active={configStatus.telegramChatId} />
                 <StatusBadge label="Zalo Bot" active={configStatus.zaloBot} />
